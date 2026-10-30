@@ -1,0 +1,202 @@
+[TITLE]
+;;Project Title/Notes
+;; SWMM5 Two-Layer Infiltration via LID Control Reuse
+;; 
+;; Demonstrates the elegant approach: define soil layers in a LID control,
+;; then set UseAsInfil = 1 in [LID_USAGE] to apply the LID's soil layers
+;; as the subcatchment's pervious area infiltration model.
+;;
+;; ONLY ONE NEW PARAMETER: UseAsInfil in [LID_USAGE]
+;; ONLY ONE NEW KEYWORD:   SOIL2 in [LID_CONTROLS]
+;;
+;; Author:  Robert E. Dickinson
+;; Date:    February 26, 2026
+
+[OPTIONS]
+FLOW_UNITS           CFS
+INFILTRATION         GREEN_AMPT        ;; <-- Standard method — still the default
+FLOW_ROUTING         DYNWAVE           ;;     Two-layer OVERRIDES this per subcatchment
+LINK_OFFSETS         DEPTH             ;;     via [LID_USAGE] UseAsInfil flag
+ALLOW_PONDING        NO
+
+START_DATE           01/01/2026
+START_TIME           00:00:00
+REPORT_START_DATE    01/01/2026
+REPORT_START_TIME    00:00:00
+END_DATE             01/02/2026
+END_TIME             00:00:00
+DRY_DAYS             5
+REPORT_STEP          00:05:00
+WET_STEP             00:01:00
+DRY_STEP             01:00:00
+ROUTING_STEP         0:00:30
+
+[EVAPORATION]
+CONSTANT         0.0
+DRY_ONLY         NO
+
+[RAINGAGES]
+;;Name           Format    Interval  SCF      Source    
+RG1              INTENSITY 0:05      1.0      TIMESERIES TS_Rain1
+
+[SUBCATCHMENTS]
+;;Name           Rain Gage        Outlet          Area     %Imperv  Width    %Slope   CurbLen  
+S1               RG1              J1               10       25       500      0.5      0
+S2               RG1              J2               15       30       600      0.8      0
+S3               RG1              J3               20       20       800      0.3      0
+
+[SUBAREAS]
+;;Subcatchment   N-Imperv   N-Perv     S-Imperv   S-Perv     PctZero    RouteTo  
+S1               0.01       0.10       0.05       0.05       25         OUTLET
+S2               0.01       0.10       0.05       0.05       25         OUTLET
+S3               0.01       0.10       0.05       0.05       25         OUTLET
+
+;;=============================================================================
+;; [INFILTRATION] — Standard Green-Ampt for any subcatchment NOT using LID
+;; two-layer override. S3 will use this; S1 and S2 use the LID override.
+;;=============================================================================
+[INFILTRATION]
+;;Subcatchment   Suction    Ksat       IMD
+S1               4.33       0.43       0.30
+S2               3.50       0.13       0.25
+S3               1.93       4.74       0.35
+
+;;=============================================================================
+;; [LID_CONTROLS] — Define the two-layer soil profiles
+;;
+;; The KEY CHANGES to existing SWMM5 LID format:
+;;   1. Add a SOIL2 keyword line for the lower soil layer
+;;      (same 7 parameters as SOIL: Thick Por FC WP Ksat Suct IMD)
+;;   2. That's it — all parsing/validation already exists for SOIL
+;;
+;; The LID type doesn't matter much since we're only using its soil
+;; layers, but BC (Bio-Retention) is the natural choice since it
+;; already requires a SOIL line.
+;;=============================================================================
+
+[LID_CONTROLS]
+;;               Type
+;;-------------- ----
+SandyLoamClay    BC
+LoamOverClay     BC
+
+;;=============================================================================
+;; SOIL LINE FORMAT (existing — no changes):
+;;   Name  SOIL  Thickness  Porosity  FieldCap  WiltPoint  Ksat  Suction  IMD
+;;                (inches)   (frac)    (frac)    (frac)    (in/hr) (inches) (frac)
+;;
+;; SOIL2 LINE FORMAT (NEW — same 7 parameters as SOIL):
+;;   Name  SOIL2 Thickness  Porosity  FieldCap  WiltPoint  Ksat  Suction  IMD
+;;                (inches)   (frac)    (frac)    (frac)    (in/hr) (inches) (frac)
+;;=============================================================================
+
+;; Profile 1: Sandy Loam (upper) over Clay Loam (lower)
+;; Upper = Sandy Loam A-horizon topsoil
+SandyLoamClay    SURFACE  0  0  0  0  0
+SandyLoamClay    SOIL     12.0    0.453   0.190   0.085   0.43    4.33    0.30
+SandyLoamClay    SOIL2    24.0    0.464   0.310   0.187   0.04    8.22    0.15
+SandyLoamClay    STORAGE  0  0  0  0
+SandyLoamClay    DRAIN    0  0  0  0  0  0
+
+;; Profile 2: Loam (upper) over Clay (lower) — heavy clay subsoil
+LoamOverClay     SURFACE  0  0  0  0  0
+LoamOverClay     SOIL     10.0    0.463   0.232   0.116   0.13    3.50    0.25
+LoamOverClay     SOIL2    30.0    0.475   0.378   0.265   0.01   12.45    0.10
+LoamOverClay     STORAGE  0  0  0  0
+LoamOverClay     DRAIN    0  0  0  0  0  0
+
+;;=============================================================================
+;; [LID_USAGE] — THE ONE NEW PARAMETER: UseAsInfil
+;;
+;; Existing format:
+;;   Subcatch  LIDControl  Number  Area  Width  InitSat  FromImperv  ToPerv  RptFile  DrainTo  FromPerv
+;;
+;; New format (ONE additional column at the end):
+;;   ... DrainTo  FromPerv  UseAsInfil
+;;
+;; UseAsInfil = 0: Normal LID behavior (default, backward compatible)
+;; UseAsInfil = 1: Use this LID's SOIL+SOIL2 layers as the subcatchment's
+;;                 pervious area infiltration model, OVERRIDING the default
+;;                 [INFILTRATION] method for this subcatchment only.
+;;
+;; When UseAsInfil = 1:
+;;   - The LID's SOIL line → Upper soil layer properties
+;;   - The LID's SOIL2 line → Lower soil layer properties
+;;   - Green-Ampt infiltration handles surface → upper layer
+;;   - LID percolation equation handles upper → lower and lower → deep
+;;   - Standard [INFILTRATION] is IGNORED for this subcatchment
+;;
+;; NOTE: Number, Area, Width etc. can be set to 0 when UseAsInfil = 1
+;;       since the LID is not being placed as a physical BMP — it's only
+;;       providing soil layer definitions to the pervious area.
+;;=============================================================================
+
+[LID_USAGE]
+;;Subcatch      LID            Number  Area  Width  InitSat  FromImp  ToPerv  RptFile  DrainTo  FromPerv  UseAsInfil
+;;------------- -------------- ------  ----- -----  -------  -------  ------  -------  -------  --------  ----------
+;; S1 uses Sandy Loam over Clay Loam profile for its pervious area infiltration
+S1              SandyLoamClay  0       0     0      0        0        0       *        *        0         1
+
+;; S2 uses Loam over Clay profile for its pervious area infiltration
+S2              LoamOverClay   0       0     0      0        0        0       *        *        0         1
+
+;; S3 does NOT use LID two-layer — it uses the standard [INFILTRATION] Green-Ampt
+;; (no LID_USAGE entry needed, or UseAsInfil = 0)
+
+
+[JUNCTIONS]
+;;Name           Elevation  MaxDepth   InitDepth  SurDepth   Aponded
+J1               100        4          0          0          0
+J2               98         4          0          0          0
+J3               96         4          0          0          0
+J4               94         4          0          0          0
+
+[OUTFALLS]
+;;Name           Elevation  Type       Stage Data       Gated
+Out1             90         FREE                        NO
+
+[CONDUITS]
+;;Name           From Node        To Node          Length     Roughness  InOffset   OutOffset  InitFlow   MaxFlow
+C1               J1               J2               400        0.01       0          0          0          0
+C2               J2               J3               400        0.01       0          0          0          0
+C3               J3               J4               400        0.01       0          0          0          0
+C4               J4               Out1             200        0.01       0          0          0          0
+
+[XSECTIONS]
+;;Link           Shape        Geom1   Geom2  Geom3  Geom4  Barrels
+C1               CIRCULAR     2       0      0      0      1
+C2               CIRCULAR     2       0      0      0      1
+C3               CIRCULAR     2.5     0      0      0      1
+C4               CIRCULAR     3       0      0      0      1
+
+[TIMESERIES]
+;; Design storm - 2-hour SCS Type II pattern (in/hr)
+TS_Rain1                    0:00       0.04
+TS_Rain1                    0:05       0.04
+TS_Rain1                    0:10       0.06
+TS_Rain1                    0:15       0.06
+TS_Rain1                    0:20       0.08
+TS_Rain1                    0:25       0.10
+TS_Rain1                    0:30       0.15
+TS_Rain1                    0:35       0.22
+TS_Rain1                    0:40       0.35
+TS_Rain1                    0:45       0.65
+TS_Rain1                    0:50       1.20
+TS_Rain1                    0:55       3.50
+TS_Rain1                    1:00       1.80
+TS_Rain1                    1:05       0.80
+TS_Rain1                    1:10       0.45
+TS_Rain1                    1:15       0.30
+TS_Rain1                    1:20       0.20
+TS_Rain1                    1:25       0.15
+TS_Rain1                    1:30       0.10
+TS_Rain1                    1:35       0.08
+TS_Rain1                    1:40       0.06
+TS_Rain1                    1:45       0.05
+TS_Rain1                    1:50       0.04
+TS_Rain1                    1:55       0.04
+
+[REPORT]
+SUBCATCHMENTS ALL
+NODES ALL
+LINKS ALL
