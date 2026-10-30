@@ -1,0 +1,452 @@
+diff --git a/src/solver/lid.c b/src/solver/lid.c
+index ddab7b6..c0d293a 100644
+--- a/src/solver/lid.c
++++ b/src/solver/lid.c
+@@ -207,6 +207,8 @@ static void   freeLidGroup(int j);
+ static int    readSurfaceData(int j, char* tok[], int ntoks);
+ static int    readPavementData(int j, char* tok[], int ntoks);
+ static int    readSoilData(int j, char* tok[], int ntoks);
++static int    readSoil2Data(int j, char* tok[], int ntoks);    // swmm524-perched
++static int    readStructData(int j, char* tok[], int ntoks);   // swmm524-perched
+ static int    readStorageData(int j, char* tok[], int ntoks);
+ static int    readDrainData(int j, char* tok[], int ntoks);
+ static int    readDrainMatData(int j, char* toks[], int ntoks);
+@@ -288,6 +290,12 @@ void lid_create(int lidCount, int subcatchCount)
+         LidProcs[j].drain.offset = 0.0;
+         LidProcs[j].drainMat.thickness = 0.0;
+         LidProcs[j].drainMat.roughness = 0.0;
++        LidProcs[j].soil2.thickness = 0.0;
++        LidProcs[j].perched = FALSE;
++        LidProcs[j].hasStruct = FALSE;
++        LidProcs[j].structKd = 0.0;
++        LidProcs[j].structKr = 0.0;
++        LidProcs[j].structMin = 1.0;
+         LidProcs[j].drainRmvl = NULL;
+         LidProcs[j].drainRmvl = (double *)
+                                 calloc(Nobjects[POLLUT], sizeof(double));
+@@ -393,6 +401,11 @@ int lid_readProcParams(char* toks[], int ntoks)
+         return 0;
+     }
+ 
++    // --- swmm524-perched: SOIL2 and STRUCT lines (exact keyword match,
++    //     tested before findmatch() so SOIL2 is not read as SOIL)
++    if ( strcomp(toks[1], "SOIL2") )  return readSoil2Data(j, toks, ntoks);
++    if ( strcomp(toks[1], "STRUCT") ) return readStructData(j, toks, ntoks);
++
+     // --- check if second token is name of LID layer
+     else m = findmatch(toks[1], LidLayerWords);
+ 
+@@ -700,6 +713,66 @@ int readSoilData(int j, char* toks[], int ntoks)
+ 
+ //=============================================================================
+ 
++int readSoil2Data(int j, char* toks[], int ntoks)
++//
++//  swmm524-perched: reads the lower (compacted) soil layer of a bio-retention
++//  cell.  Same fields as the SOIL line:
++//    LID_ID  SOIL2  Thickness  Porosity  FieldCap  WiltPt  Ksat  Kslope  Suction
++//  The layer replaces the STORAGE layer as the zone under the topsoil.  Its
++//  drainage to native soil is its own K(theta) capped by the STORAGE line's
++//  seepage rate (seepage 0 = impermeable below).
++//
++{
++    int    i;
++    double x[7];
++
++    if ( ntoks < 9 ) return error_setInpError(ERR_ITEMS, "");
++    for (i = 2; i < 9; i++)
++    {
++        if ( ! getDouble(toks[i], &x[i-2]) || x[i-2] < 0.0 )
++            return error_setInpError(ERR_NUMBER, toks[i]);
++    }
++    LidProcs[j].soil2.thickness = x[0] / UCF(RAINDEPTH);
++    LidProcs[j].soil2.porosity  = x[1];
++    LidProcs[j].soil2.fieldCap  = x[2];
++    LidProcs[j].soil2.wiltPoint = x[3];
++    LidProcs[j].soil2.kSat      = x[4] / UCF(RAINFALL);
++    LidProcs[j].soil2.kSlope    = x[5];
++    LidProcs[j].soil2.suction   = x[6] / UCF(RAINDEPTH);
++    LidProcs[j].perched = TRUE;
++    return 0;
++}
++
++//=============================================================================
++
++int readStructData(int j, char* toks[], int ntoks)
++//
++//  swmm524-perched: optional topsoil structure dynamics.
++//    LID_ID  STRUCT  DecayRate  RecoveryRate  MinFactor
++//  DecayRate (1/day) applies while the topsoil is within 0.01 of saturation,
++//  RecoveryRate (1/day) while it is at or below field capacity.  The factor
++//  multiplies the topsoil Ksat (surface entry and percolation).
++//
++{
++    int    i;
++    double x[3];
++
++    if ( ntoks < 5 ) return error_setInpError(ERR_ITEMS, "");
++    for (i = 2; i < 5; i++)
++    {
++        if ( ! getDouble(toks[i], &x[i-2]) || x[i-2] < 0.0 )
++            return error_setInpError(ERR_NUMBER, toks[i]);
++    }
++    if ( x[2] <= 0.0 || x[2] > 1.0 ) return error_setInpError(ERR_NUMBER, toks[4]);
++    LidProcs[j].structKd  = x[0];
++    LidProcs[j].structKr  = x[1];
++    LidProcs[j].structMin = x[2];
++    LidProcs[j].hasStruct = TRUE;
++    return 0;
++}
++
++//=============================================================================
++
+ int readStorageData(int j, char* toks[], int ntoks)
+ //
+ //  Purpose: reads drainage layer data for a LID process from line of input
+@@ -1000,6 +1073,28 @@ void validateLidProc(int j)
+         }
+     }
+ 
++    //... swmm524-perched: SOIL2 becomes the zone under the topsoil
++    if ( LidProcs[j].perched )
++    {
++        if ( LidProcs[j].lidType != BIO_CELL
++        ||   LidProcs[j].soil2.thickness <= 0.0
++        ||   LidProcs[j].soil2.porosity  <= 0.0
++        ||   LidProcs[j].soil2.porosity  >  1.0
++        ||   LidProcs[j].soil2.fieldCap  >= LidProcs[j].soil2.porosity
++        ||   LidProcs[j].soil2.wiltPoint >= LidProcs[j].soil2.fieldCap
++        ||   LidProcs[j].soil2.kSat      <= 0.0 )
++        {
++            sstrncpy(Msg, LidProcs[j].ID, MAXMSG);
++            sstrcat(Msg, ERR_SOIL_LAYER, MAXMSG);
++            report_writeErrorMsg(ERR_LID_PARAMS, Msg);
++        }
++        LidProcs[j].storage.thickness  = LidProcs[j].soil2.thickness;
++        LidProcs[j].storage.voidFrac   = LidProcs[j].soil2.porosity;
++        LidProcs[j].storage.clogFactor = 0.0;
++        LidProcs[j].drain.coeff = 0.0;
++    }
++    else LidProcs[j].hasStruct = FALSE;
++
+     //... check storage layer parameters
+     if ( LidProcs[j].storage.thickness > 0.0 )
+     {
+@@ -1156,6 +1251,23 @@ void validateLidGroup(int j)
+             }
+         }
+         
++        //... swmm524-perched: Green-Ampt object for entry into SOIL2.
++        //    Max. deficit is the drainable pore space (porosity - FC).
++        lidUnit->soil2Infil.Ks = 0.0;
++        if ( LidProcs[k].perched )
++        {
++            p[0] = LidProcs[k].soil2.suction * UCF(RAINDEPTH);
++            p[1] = LidProcs[k].soil2.kSat * UCF(RAINFALL);
++            p[2] = (LidProcs[k].soil2.porosity - LidProcs[k].soil2.fieldCap) *
++                   (1.0 - lidUnit->initSat);
++            if ( grnampt_setParams(&(lidUnit->soil2Infil), p) == FALSE )
++            {
++                sstrncpy(Msg, LidProcs[k].ID, MAXMSG);
++                sstrcat(Msg, ERR_SOIL_LAYER, MAXMSG);
++                report_writeErrorMsg(ERR_LID_PARAMS, Msg);
++            }
++        }
++
+         //... assign vegetative swale infiltration parameters
+         if ( LidProcs[k].lidType == VEG_SWALE )
+         {
+@@ -1257,12 +1369,24 @@ void lid_initState()
+                     LidProcs[k].soil.wiltPoint);
+                 initVol += lidUnit->soilMoisture * LidProcs[k].soil.thickness;
+             }
+-            if ( LidProcs[k].storage.thickness > 0.0 )
++            if ( LidProcs[k].perched )
++            {
++                //... swmm524-perched: lower-layer moisture starts at
++                //    WP + initSat*(porosity - WP), stored as an equivalent
++                //    depth in the storage slot (theta2 = depth*voidFrac/thick)
++                double th2 = LidProcs[k].soil2.wiltPoint + lidUnit->initSat *
++                    (LidProcs[k].soil2.porosity - LidProcs[k].soil2.wiltPoint);
++                lidUnit->storageDepth = th2 * LidProcs[k].storage.thickness /
++                                        LidProcs[k].storage.voidFrac;
++                initVol += th2 * LidProcs[k].storage.thickness;
++            }
++            else if ( LidProcs[k].storage.thickness > 0.0 )
+             {
+                 lidUnit->storageDepth = lidUnit->initSat *
+                     LidProcs[k].storage.thickness;
+                 initVol += lidUnit->storageDepth * LidProcs[k].storage.voidFrac;
+             }
++            lidUnit->structFactor = 1.0;
+             if ( lidUnit->initSat > 0.0 ) HasWetLids = TRUE;
+ 
+             //... initialize water balance totals
+@@ -1288,6 +1412,8 @@ void lid_initState()
+             //... initialize infiltration state variables
+             if ( lidUnit->soilInfil.Ks > 0.0 )
+                 grnampt_initState(&(lidUnit->soilInfil));
++            if ( lidUnit->soil2Infil.Ks > 0.0 )
++                grnampt_initState(&(lidUnit->soil2Infil));
+ 
+             //... add contribution to pervious LID area
+             if ( isLidPervious(lidUnit->lidIndex) )
+@@ -2011,6 +2137,9 @@ void initLidRptFile(char* title, char* lidID, char* subcatchID, TLidUnit* lidUni
+     fprintf(f, "SWMM5 LID Report File\n");
+     fprintf(f, "\nProject:  %s", title);
+     fprintf(f, "\nLID Unit: %s in Subcatchment %s\n", lidID, subcatchID);
++    if ( LidProcs[lidUnit->lidIndex].perched )
++        fprintf(f, "swmm524-perched: 'Pavement Level' = topsoil structure factor (-),"
++                   " 'Storage Level' = SOIL2 moisture content (-)\n");
+ 
+     //... write column headings
+     for ( i = 0; i < colCount; i++) fprintf(f, "%s", head1[i]);
+diff --git a/src/solver/lid.h b/src/solver/lid.h
+index b250fcf..d643203 100644
+--- a/src/solver/lid.h
++++ b/src/solver/lid.h
+@@ -143,6 +143,13 @@ typedef struct
+     TDrainLayer    drain;         // underdrain system parameters
+     TDrainMatLayer drainMat;      // drainage mat layer
+     double*        drainRmvl;     // underdrain pollutant removals
++    // --- swmm524-perched additions (bio-retention cells only) ---
++    TSoilLayer     soil2;         // lower (compacted) soil layer: SOIL2 line
++    int            perched;       // TRUE if a SOIL2 line was supplied
++    int            hasStruct;     // TRUE if a STRUCT line was supplied
++    double         structKd;      // structure decay rate while saturated (1/day)
++    double         structKr;      // structure recovery rate while <= FC (1/day)
++    double         structMin;     // floor on the structure factor (fraction)
+ }  TLidProc;
+ 
+ // Water Balance Statistics
+@@ -182,6 +189,8 @@ typedef struct
+     TLidRptFile* rptFile;    // pointer to detailed report file
+ 
+     TGrnAmpt soilInfil;      // infil. object for biocell soil layer 
++    TGrnAmpt soil2Infil;     // swmm524-perched: entry into SOIL2 at interface
++    double   structFactor;   // swmm524-perched: topsoil structure factor (0-1]
+     double   surfaceDepth;   // depth of ponded water on surface layer (ft)
+     double   paveDepth;      // depth of water in porous pavement layer
+     double   soilMoisture;   // moisture content of biocell soil layer
+diff --git a/src/solver/lidproc.c b/src/solver/lidproc.c
+index 85245fb..4feb380 100644
+--- a/src/solver/lidproc.c
++++ b/src/solver/lidproc.c
+@@ -158,6 +158,13 @@ static double getSurfaceOverflowRate(double* surfaceDepth);
+ static double getPavementPermRate(void);
+ static double getSoilPercRate(double theta);
+ static double getStorageExfilRate(void);
++
++//-- swmm524-perched ----------------------------------------------------------
++static double  InterfaceCap;   // max. flux the lower layer accepts this step (ft/s)
++static double  StructF;        // topsoil structure factor for this step
++static void    perchedFluxRates(double x[], double f[]);
++static double  getInterfaceCap(void);
++static void    updateStructFactor(void);
+ static double getStorageDrainRate(double storageDepth, double soilTheta,
+               double paveDepth, double surfaceDepth);
+ static double getDrainMatOutflow(double depth);
+@@ -271,6 +278,15 @@ double lidproc_getOutflow(TLidUnit* lidUnit, TLidProc* lidProc, double inflow,
+         Xold[i] = x[i];
+     }
+ 
++    //... swmm524-perched: structure factor scales the topsoil Ksat
++    StructF = 1.0;
++    InterfaceCap = 0.0;
++    if ( theLidProc->perched )
++    {
++        StructF = theLidUnit->structFactor;
++        theLidUnit->soilInfil.Ks = theLidProc->soil.kSat * StructF;
++    }
++
+     //... find Green-Ampt infiltration from surface layer
+     if ( theLidProc->lidType == POROUS_PAVEMENT ) SurfaceInfil = 0.0;
+     else if ( theLidUnit->soilInfil.Ks > 0.0 )
+@@ -305,7 +321,13 @@ double lidproc_getOutflow(TLidUnit* lidUnit, TLidProc* lidProc, double inflow,
+     switch (theLidProc->lidType)
+     {
+     case BIO_CELL:
+-    case RAIN_GARDEN:     fluxRates = &biocellFluxRates;   break;
++    case RAIN_GARDEN:     fluxRates = &biocellFluxRates;
++                          if ( theLidProc->perched )
++                          {
++                              InterfaceCap = getInterfaceCap();
++                              fluxRates = &perchedFluxRates;
++                          }
++                          break;
+     case GREEN_ROOF:      fluxRates = &greenRoofFluxRates; break;
+     case INFIL_TRENCH:    fluxRates = &trenchFluxRates;    break;
+     case POROUS_PAVEMENT: fluxRates = &pavementFluxRates;  break;
+@@ -346,6 +368,9 @@ double lidproc_getOutflow(TLidUnit* lidUnit, TLidProc* lidProc, double inflow,
+     theLidUnit->storageDepth = x[STOR];
+     for (i = 0; i < MAX_LAYERS; i++) theLidUnit->oldFluxRates[i] = f[i];
+ 
++    //... swmm524-perched: update topsoil structure after the step
++    if ( theLidProc->perched && theLidProc->hasStruct ) updateStructFactor();
++
+     //... assign values to LID unit evaporation, infiltration & drain flow
+     *lidEvap = SurfaceEvap + PaveEvap + SoilEvap + StorageEvap;
+     *lidInfil = StorageExfil;
+@@ -391,6 +416,9 @@ void lidproc_saveResults(TLidUnit* lidUnit, double ucfRainfall, double ucfRainDe
+          totalEvap      < MINFLOW
+        ) isDry = TRUE;
+ 
++    //... swmm524-perched: a draining perched zone counts as activity
++    if ( theLidProc->perched && SoilPerc >= MINFLOW ) isDry = FALSE;
++
+     //... update status of HasWetLids
+     if ( !isDry ) HasWetLids = TRUE;
+ 
+@@ -414,6 +442,13 @@ void lidproc_saveResults(TLidUnit* lidUnit, double ucfRainfall, double ucfRainDe
+         rptVars[PAVE_DEPTH] = theLidUnit->paveDepth*ucf;
+         rptVars[SOIL_MOIST] = theLidUnit->soilMoisture;
+         rptVars[STOR_DEPTH] = theLidUnit->storageDepth*ucf;
++        if ( theLidProc->perched )
++        {
++            //... swmm524-perched: report structure factor and SOIL2 moisture
++            rptVars[PAVE_DEPTH] = theLidUnit->structFactor;
++            rptVars[STOR_DEPTH] = theLidUnit->storageDepth *
++                theLidProc->storage.voidFrac / theLidProc->storage.thickness;
++        }
+ 
+         //... if the current LID state is wet but the previous state was dry
+         //    for more than one period then write the saved previous results
+@@ -1605,3 +1640,138 @@ int modpuls_solve(int n, double* x, double* xOld, double* xPrev,
+     //... no convergence so return 0
+     return 0;
+ }
++
++//=============================================================================
++//  swmm524-perched: two-layer bio-retention cell with a conductivity-limited
++//  interface.  Layer 1 = SOIL (topsoil), layer 2 = SOIL2 (compacted soil),
++//  carried in the storage slot as an equivalent depth so the water balance,
++//  limits and reporting code are reused unchanged:
++//      theta2 = storageDepth * storage.voidFrac / storage.thickness,
++//      storage.voidFrac = SOIL2 porosity, storage.thickness = SOIL2 thickness.
++//=============================================================================
++
++double getInterfaceCap()
++//
++//  Purpose: finds the most water the lower layer can take in across the
++//           interface over the coming time step (ft/s), from Green-Ampt with
++//           the perched water depth added to the suction head.
++//
++{
++    TSoilLayer* s1 = &theLidProc->soil;
++    TSoilLayer* s2 = &theLidProc->soil2;
++    TGrnAmpt*   ga = &theLidUnit->soil2Infil;
++    double theta1 = theLidUnit->soilMoisture;
++    double theta2 = theLidUnit->storageDepth * theLidProc->storage.voidFrac /
++                    theLidProc->storage.thickness;
++    double head = 0.0, supply, avail, cap, saveS, deficit;
++
++    //... saturated (perched) depth at the bottom of the topsoil
++    if ( theta1 > s1->fieldCap )
++        head = s1->thickness * (theta1 - s1->fieldCap) /
++               (s1->porosity - s1->fieldCap);
++
++    //... water arriving at the interface: topsoil unsaturated K(theta1),
++    //    no more than the drainable water it holds
++    supply = getSoilPercRate(theta1) * StructF;
++    avail  = MAX(theta1 - s1->fieldCap, 0.0) * s1->thickness / Tstep;
++    supply = MIN(supply, avail);
++
++    //... the Green-Ampt deficit cannot exceed the lower layer's actual
++    //    free pore space
++    deficit = MAX(s2->porosity - theta2, 0.0);
++    if ( ga->IMD > deficit ) ga->IMD = deficit;
++
++    //... perched head acts on the wetting front through the suction term
++    saveS = ga->S;
++    ga->S = s2->suction + head;
++    cap = grnampt_getInfil(ga, Tstep, supply, 0.0, MOD_GREEN_AMPT);
++    ga->S = saveS;
++    return MAX(cap, 0.0);
++}
++
++//=============================================================================
++
++void perchedFluxRates(double x[], double f[])
++//
++//  Purpose: computes flux rates for the perched two-layer bio-retention cell.
++//  Input:   x = vector of storage levels (surface depth, theta1, equiv. depth)
++//  Output:  f = vector of flux rates
++//
++{
++    TSoilLayer* s1 = &theLidProc->soil;
++    TSoilLayer* s2 = &theLidProc->soil2;
++    double L1  = s1->thickness;
++    double L2  = theLidProc->storage.thickness;
++    double vf2 = theLidProc->storage.voidFrac;
++    double surfaceDepth = x[SURF];
++    double soilTheta    = x[SOIL];
++    double storageDepth = x[STOR];
++    double theta2, availVolume, maxRate;
++
++    //... convert moisture levels to volumes
++    SurfaceVolume = surfaceDepth * theLidProc->surface.voidFrac;
++    SoilVolume    = soilTheta * L1;
++    StorageVolume = storageDepth * vf2;              // = theta2 * L2
++    theta2        = StorageVolume / L2;
++
++    //... ET: surface water, then topsoil to its WP, then SOIL2 to its WP
++    availVolume = SoilVolume - s1->wiltPoint * L1;
++    getEvapRates(SurfaceVolume, 0.0, availVolume,
++                 MAX(StorageVolume - s2->wiltPoint * L2, 0.0), 1.0);
++    if ( soilTheta >= s1->porosity ) StorageEvap = 0.0;
++
++    //... topsoil percolation toward the interface
++    SoilPerc = getSoilPercRate(soilTheta) * StructF;
++    availVolume = (soilTheta - s1->fieldCap) * L1;
++    maxRate = MAX(availVolume, 0.0) / Tstep - SoilEvap;
++    SoilPerc = MIN(SoilPerc, maxRate);
++    SoilPerc = MAX(SoilPerc, 0.0);
++
++    //... the compacted layer accepts no more than its Green-Ampt capacity
++    SoilPerc = MIN(SoilPerc, InterfaceCap);
++
++    //... drainage out of SOIL2: its own K(theta2), capped by the seepage
++    //    rate on the STORAGE line, never below field capacity
++    StorageExfil = 0.0;
++    if ( theta2 > s2->fieldCap )
++        StorageExfil = s2->kSat * exp(-(s2->porosity - theta2) * s2->kSlope);
++    StorageExfil = MIN(StorageExfil, getStorageExfilRate());
++    maxRate = MAX(theta2 - s2->fieldCap, 0.0) * L2 / Tstep + SoilPerc - StorageEvap;
++    StorageExfil = MIN(StorageExfil, MAX(maxRate, 0.0));
++    StorageDrain = 0.0;
++
++    //... limit topsoil percolation by unused SOIL2 pore space
++    maxRate = StorageExfil + StorageEvap + (s2->porosity - theta2) * L2 / Tstep;
++    SoilPerc = MIN(SoilPerc, MAX(maxRate, 0.0));
++
++    //... limit surface infiltration by unused topsoil pore space
++    maxRate = (s1->porosity - soilTheta) * L1 / Tstep + SoilPerc + SoilEvap;
++    SurfaceInfil = MIN(SurfaceInfil, maxRate);
++
++    //... surface outflow and layer flux rates
++    SurfaceOutflow = getSurfaceOutflowRate(surfaceDepth);
++    f[SURF] = (SurfaceInflow - SurfaceEvap - SurfaceInfil - SurfaceOutflow) /
++              theLidProc->surface.voidFrac;
++    f[SOIL] = (SurfaceInfil - SoilEvap - SoilPerc) / L1;
++    f[STOR] = (SoilPerc - StorageEvap - StorageExfil) / vf2;
++}
++
++//=============================================================================
++
++void updateStructFactor()
++//
++//  Purpose: first-order decay of topsoil structure while the topsoil is
++//           saturated, recovery while it is at or below field capacity.
++//
++{
++    double theta = theLidUnit->soilMoisture;
++    double sf    = theLidUnit->structFactor;
++    double smin  = theLidProc->structMin;
++    double days  = Tstep / SECperDAY;
++
++    if ( theta >= theLidProc->soil.porosity - 0.01 )
++        sf = smin + (sf - smin) * exp(-theLidProc->structKd * days);
++    else if ( theta <= theLidProc->soil.fieldCap )
++        sf = 1.0 - (1.0 - sf) * exp(-theLidProc->structKr * days);
++    theLidUnit->structFactor = MAX(MIN(sf, 1.0), smin);
++}

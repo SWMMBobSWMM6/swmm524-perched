@@ -1,0 +1,162 @@
+[
+ {
+  "variant": "L0",
+  "season": "dormant",
+  "sat_hours": 0.0,
+  "sat_pct_of_window": 0.0,
+  "longest_sat_hours": 0.0,
+  "struct_min": 1.0,
+  "struct_end": 1.0,
+  "soil2_theta_mean": null
+ },
+ {
+  "variant": "L0",
+  "season": "growing",
+  "sat_hours": 0.0,
+  "sat_pct_of_window": 0.0,
+  "longest_sat_hours": 0.0,
+  "struct_min": 1.0,
+  "struct_end": 1.0,
+  "soil2_theta_mean": null
+ },
+ {
+  "variant": "L1",
+  "season": "dormant",
+  "sat_hours": 0.0,
+  "sat_pct_of_window": 0.0,
+  "longest_sat_hours": 0.0,
+  "struct_min": 1.0,
+  "struct_end": 1.0,
+  "soil2_theta_mean": null
+ },
+ {
+  "variant": "L1",
+  "season": "growing",
+  "sat_hours": 0.0,
+  "sat_pct_of_window": 0.0,
+  "longest_sat_hours": 0.0,
+  "struct_min": 1.0,
+  "struct_end": 1.0,
+  "soil2_theta_mean": null
+ },
+ {
+  "variant": "L2",
+  "season": "dormant",
+  "sat_hours": 47.4,
+  "sat_pct_of_window": 2.19,
+  "longest_sat_hours": 15.0,
+  "struct_min": 1.0,
+  "struct_end": 1.0,
+  "soil2_theta_mean": null
+ },
+ {
+  "variant": "L2",
+  "season": "growing",
+  "sat_hours": 21.8,
+  "sat_pct_of_window": 1.01,
+  "longest_sat_hours": 9.2,
+  "struct_min": 1.0,
+  "struct_end": 1.0,
+  "soil2_theta_mean": null
+ },
+ {
+  "variant": "L2s",
+  "season": "dormant",
+  "sat_hours": 325.7,
+  "sat_pct_of_window": 15.08,
+  "longest_sat_hours": 39.6,
+  "struct_min": 1.0,
+  "struct_end": 1.0,
+  "soil2_theta_mean": null
+ },
+ {
+  "variant": "L2s",
+  "season": "growing",
+  "sat_hours": 38.8,
+  "sat_pct_of_window": 1.8,
+  "longest_sat_hours": 14.4,
+  "struct_min": 1.0,
+  "struct_end": 1.0,
+  "soil2_theta_mean": null
+ },
+ {
+  "variant": "P1",
+  "season": "dormant",
+  "sat_hours": 34.4,
+  "sat_pct_of_window": 1.59,
+  "longest_sat_hours": 12.2,
+  "struct_min": 1.0,
+  "struct_end": 1.0,
+  "soil2_theta_mean": 0.406
+ },
+ {
+  "variant": "P1",
+  "season": "growing",
+  "sat_hours": 5.6,
+  "sat_pct_of_window": 0.26,
+  "longest_sat_hours": 5.6,
+  "struct_min": 1.0,
+  "struct_end": 1.0,
+  "soil2_theta_mean": 0.236
+ },
+ {
+  "variant": "P1s",
+  "season": "dormant",
+  "sat_hours": 325.7,
+  "sat_pct_of_window": 15.08,
+  "longest_sat_hours": 39.6,
+  "struct_min": 1.0,
+  "struct_end": 1.0,
+  "soil2_theta_mean": 0.394
+ },
+ {
+  "variant": "P1s",
+  "season": "growing",
+  "sat_hours": 30.0,
+  "sat_pct_of_window": 1.39,
+  "longest_sat_hours": 14.0,
+  "struct_min": 1.0,
+  "struct_end": 1.0,
+  "soil2_theta_mean": 0.228
+ },
+ {
+  "variant": "P2",
+  "season": "dormant",
+  "sat_hours": 36.6,
+  "sat_pct_of_window": 1.69,
+  "longest_sat_hours": 12.7,
+  "struct_min": 0.724,
+  "struct_end": 0.767,
+  "soil2_theta_mean": 0.406
+ },
+ {
+  "variant": "P2",
+  "season": "growing",
+  "sat_hours": 5.6,
+  "sat_pct_of_window": 0.26,
+  "longest_sat_hours": 5.6,
+  "struct_min": 0.946,
+  "struct_end": 0.976,
+  "soil2_theta_mean": 0.235
+ },
+ {
+  "variant": "P2s",
+  "season": "dormant",
+  "sat_hours": 327.3,
+  "sat_pct_of_window": 15.15,
+  "longest_sat_hours": 39.6,
+  "struct_min": 0.111,
+  "struct_end": 0.111,
+  "soil2_theta_mean": 0.393
+ },
+ {
+  "variant": "P2s",
+  "season": "growing",
+  "sat_hours": 30.0,
+  "sat_pct_of_window": 1.39,
+  "longest_sat_hours": 14.0,
+  "struct_min": 0.83,
+  "struct_end": 0.86,
+  "soil2_theta_mean": 0.228
+ }
+]
