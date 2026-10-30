@@ -99,6 +99,12 @@ On Ubuntu 24 with `_FORTIFY_SOURCE` on, the 5.2.4 command-line build aborts at "
 
 `perched_tests/` holds the harness: the `.inp` writer, the recovery, season and saturation runners, the parity check against a stock 5.2.4 binary, and the result files. Set `SWMM_ENGINE` to a stock 5.2.4 `runswmm` and `SWMM_PERCHED_ENGINE` to this one.
 
+## WebAssembly build
+
+`wasm/build_wasm.sh` compiles the engine to a wasm32-wasi module with Zig's C toolchain (`pip install ziglang`), using `-O2`, no fast-math and no FP contraction. `wasm/wasi_shim.c` supplies `mkstemp`, which wasi-libc lacks; no engine source changes. `wasm/runwasi.mjs` runs it under Node with the same `inp rpt out` arguments as `runswmm`. The browser runner in the Topsoil Recovery Check page drives it through a 16-call in-memory WASI layer.
+
+Parity, measured: against the native build, 53 of 59 `.out` files byte-identical, with runoff totals equal on all 59. The other 6 differ only in the last bits of a few values. Two are stock cases (≤ 2×10⁻¹⁸); four are the stiff K2 = 1000 in/hr limiting case (≤ 0.01 on individual reported rates). With no SOIL2 line, this wasm and a wasm build of stock EPA 5.2.4 wrote byte-identical `.out` files on 25 of 25 inputs.
+
 ## Credits and license
 
 The base engine is EPA SWMM 5.2.4 (Lewis Rossman, US EPA), which is public domain; see `README-EPA.md`. The perched option was written for the SWMM Enablement work of Robert Dickinson. Its reference points are soil physics from Nimmo (2004) on textural and structural porosity and Leij, Ghezzehei and Or (2002) on pore-size dynamics after tillage.
