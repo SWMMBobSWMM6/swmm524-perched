@@ -158,7 +158,16 @@ typedef struct
     double         vgN[2];        // van Genuchten n (-), > 1
     int            vgMualem[2];   // 1 = vG-Mualem K(theta), 0 = SWMM exponential K
     double         vgGmax;        // cap on the upward head gradient (-)
+    int            vgOpt;         // VG OPTION switches (bit flags, 0 = none)
 }  TLidProc;
+
+// swmm524-perched: VG OPTION switches that put back one perched-engine
+// assumption at a time (for controlled comparisons)
+#define VGOPT_TOPFC   1   // topsoil drains only above field capacity
+#define VGOPT_FCDRAIN 2   // SOIL2 drains only above field capacity
+#define VGOPT_SOIL2ET 4   // SOIL2 loses water to ET directly
+#define VGOPT_FCHEAD  8   // Green-Ampt perched head from field capacity
+#define VGOPT_STEP   16   // downward flux = K1 for any positive drive
 
 // Water Balance Statistics
 typedef struct

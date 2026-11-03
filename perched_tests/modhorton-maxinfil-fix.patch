@@ -1,0 +1,55 @@
+diff --git a/src/solver/infil.c b/src/solver/infil.c
+index 9e09837..fd2d882 100644
+--- a/src/solver/infil.c
++++ b/src/solver/infil.c
+@@ -363,6 +363,7 @@ void horton_initState(THorton *infil)
+ {
+     infil->tp = 0.0;
+     infil->Fe = 0.0;
++    infil->Fmh = 0.0;
+ }
+ 
+ //=============================================================================
+@@ -540,16 +541,28 @@ double modHorton_getInfil(THorton *infil, double tstep, double irate,
+         // --- actual infiltration
+         f = MIN(fa, fp);
+ 
++        // --- limit total cumulative infiltration to Fmax (OpenSWMM 5.3.0 fix)
++        if (infil->Fmax > 0.0)
++        {
++            if (infil->Fmh + f * tstep > infil->Fmax)
++                f = (infil->Fmax - infil->Fmh) / tstep;
++            f = MAX(f, 0.0);
++            infil->Fmh += f * tstep;
++        }
++
+         // --- new cumulative infiltration minus seepage
+         infil->Fe += MAX((f - fmin), 0.0) * tstep;
+-        if ( infil->Fmax > 0.0 ) infil->Fe = MAX(infil->Fe, infil->Fmax);
++        if ( infil->Fmax > 0.0 ) infil->Fe = MIN(infil->Fe, infil->Fmax);
+     }
+ 
+     // --- reduce cumulative infiltration for dry condition
+     else if (kr > 0.0)
+     {
+-        infil->Fe *= exp(-kr * tstep);
++        double rf = exp(-kr * tstep);
++        infil->Fe *= rf;
+         infil->Fe = MAX(infil->Fe, 0.0);
++        infil->Fmh *= rf;
++        infil->Fmh = MAX(infil->Fmh, 0.0);
+     }
+     return f;
+ }
+diff --git a/src/solver/infil.h b/src/solver/infil.h
+index f5ddf31..4fe13d5 100644
+--- a/src/solver/infil.h
++++ b/src/solver/infil.h
+@@ -44,6 +44,7 @@ typedef struct
+    //-----------------------------
+    double        tp;              // present time on infiltration curve (sec)
+    double        Fe;              // cumulative infiltration (ft)
++   double        Fmh;             // mod Horton total cumulative infiltration (ft) -- OpenSWMM 5.3.0 fix
+ }  THorton;
+ 
+ 

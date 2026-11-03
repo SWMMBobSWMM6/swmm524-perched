@@ -1676,11 +1676,21 @@ double getInterfaceCap()
         //... VG option: pressure head at the bottom of the topsoil (from the
         //    midpoint head, hydrostatic) and the downward head-driven supply;
         //    no supply when the heads say water would move up or stand still
+        int opt = theLidProc->vgOpt;
         head = MAX(vgHead(0, theta1) + 0.5 * s1->thickness, 0.0);
+        if ( opt & VGOPT_FCHEAD )
+        {
+            head = 0.0;
+            if ( theta1 > s1->fieldCap )
+                head = s1->thickness * (theta1 - s1->fieldCap) /
+                       (s1->porosity - s1->fieldCap);
+        }
         drive = vgDrive(theta1, theta2);
         supply = 0.0;
-        if ( drive > 0.0 ) supply = vgK(0, theta1) * MIN(drive, 1.0);
-        avail  = MAX(theta1 - theLidProc->vgThetaR[0], 0.0) * s1->thickness / Tstep;
+        if ( drive > 0.0 )
+            supply = vgK(0, theta1) * ((opt & VGOPT_STEP) ? 1.0 : MIN(drive, 1.0));
+        avail  = MAX(theta1 - ((opt & VGOPT_TOPFC) ? s1->fieldCap :
+                 theLidProc->vgThetaR[0]), 0.0) * s1->thickness / Tstep;
         supply = MIN(supply, avail);
     }
     else
@@ -1884,6 +1894,9 @@ void vgFluxRates(double x[], double f[])
     double soilTheta    = x[SOIL];
     double storageDepth = x[STOR];
     double theta2, drive, maxRate, room1, avail2;
+    int    opt = theLidProc->vgOpt;
+    double floor1 = (opt & VGOPT_TOPFC)   ? s1->fieldCap : thr1;   // topsoil drains down to
+    double floor2 = (opt & VGOPT_FCDRAIN) ? s2->fieldCap : thr2;   // SOIL2 drains down to
 
     //... convert moisture levels to volumes
     SurfaceVolume = surfaceDepth * theLidProc->surface.voidFrac;
@@ -1891,17 +1904,20 @@ void vgFluxRates(double x[], double f[])
     StorageVolume = storageDepth * vf2;              // = theta2 * L2
     theta2        = StorageVolume / L2;
 
-    //... ET: surface water, then topsoil to its WP (none from SOIL2)
+    //... ET: surface water, then topsoil to its WP (none from SOIL2 unless
+    //    the SOIL2ET option puts direct SOIL2 ET back)
     getEvapRates(SurfaceVolume, 0.0, MAX(SoilVolume - s1->wiltPoint * L1, 0.0),
-                 0.0, 1.0);
+                 (opt & VGOPT_SOIL2ET) ? MAX(StorageVolume - s2->wiltPoint * L2, 0.0) : 0.0,
+                 1.0);
+    if ( (opt & VGOPT_SOIL2ET) && soilTheta >= s1->porosity ) StorageEvap = 0.0;
 
     //... head-driven flow across the interface (+ down, - up)
     drive = vgDrive(soilTheta, theta2);
     if ( drive > 0.0 )
     {
-        SoilPerc = vgK(0, soilTheta) * MIN(drive, 1.0);
+        SoilPerc = vgK(0, soilTheta) * ((opt & VGOPT_STEP) ? 1.0 : MIN(drive, 1.0));
         SoilPerc = MIN(SoilPerc, InterfaceCap);
-        maxRate  = MAX(soilTheta - thr1, 0.0) * L1 / Tstep - SoilEvap;
+        maxRate  = MAX(soilTheta - floor1, 0.0) * L1 / Tstep - SoilEvap;
         SoilPerc = MIN(SoilPerc, MAX(maxRate, 0.0));
     }
     else
@@ -1914,8 +1930,10 @@ void vgFluxRates(double x[], double f[])
 
     //... drainage out of SOIL2: its own K(theta2), unit gradient, no field
     //    capacity cutoff, capped by the seepage rate on the STORAGE line
-    StorageExfil = MIN(vgK(1, theta2), getStorageExfilRate());
-    maxRate = MAX(theta2 - thr2, 0.0) * L2 / Tstep + SoilPerc - StorageEvap;
+    StorageExfil = 0.0;
+    if ( !(opt & VGOPT_FCDRAIN) || theta2 > floor2 )
+        StorageExfil = MIN(vgK(1, theta2), getStorageExfilRate());
+    maxRate = MAX(theta2 - floor2, 0.0) * L2 / Tstep + SoilPerc - StorageEvap;
     StorageExfil = MIN(StorageExfil, MAX(maxRate, 0.0));
     StorageDrain = 0.0;
 

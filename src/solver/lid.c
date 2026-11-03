@@ -301,6 +301,7 @@ void lid_create(int lidCount, int subcatchCount)
         LidProcs[j].vgSet[0] = LidProcs[j].vgSet[1] = FALSE;
         LidProcs[j].vgMualem[0] = LidProcs[j].vgMualem[1] = 0;
         LidProcs[j].vgGmax = 10.0;
+        LidProcs[j].vgOpt = 0;
         LidProcs[j].drainRmvl = NULL;
         LidProcs[j].drainRmvl = (double *)
                                 calloc(Nobjects[POLLUT], sizeof(double));
@@ -786,7 +787,9 @@ int readVGData(int j, char* toks[], int ntoks)
 //    LID_ID  VG  SOIL   ThetaR  Alpha  n  [EXP | MUALEM]
 //    LID_ID  VG  SOIL2  ThetaR  Alpha  n  [EXP | MUALEM]
 //    LID_ID  VG  GMAX   MaxUpwardGradient
-//  Alpha is in 1/in (1/mm for SI units).  ThetaS is the layer's porosity.
+//    LID_ID  VG  OPTION TOPFC | FCDRAIN | SOIL2ET | FCHEAD | STEP
+//  Alpha is in 1/in (1/mm for SI units).  Each OPTION line puts back one
+//  perched-engine assumption, for controlled comparisons (see lidproc.c).  ThetaS is the layer's porosity.
 //  EXP (default) keeps the SOIL line's exponential K(theta); MUALEM uses
 //  vG-Mualem K(theta).  With both layers given, flow across the interface is
 //  driven by the head difference between layer midpoints (see lidproc.c).
@@ -796,6 +799,16 @@ int readVGData(int j, char* toks[], int ntoks)
     double x[3];
 
     if ( ntoks < 4 ) return error_setInpError(ERR_ITEMS, "");
+    if ( strcomp(toks[2], "OPTION") )
+    {
+        if      ( strcomp(toks[3], "TOPFC") )   LidProcs[j].vgOpt |= VGOPT_TOPFC;
+        else if ( strcomp(toks[3], "FCDRAIN") ) LidProcs[j].vgOpt |= VGOPT_FCDRAIN;
+        else if ( strcomp(toks[3], "SOIL2ET") ) LidProcs[j].vgOpt |= VGOPT_SOIL2ET;
+        else if ( strcomp(toks[3], "FCHEAD") )  LidProcs[j].vgOpt |= VGOPT_FCHEAD;
+        else if ( strcomp(toks[3], "STEP") )    LidProcs[j].vgOpt |= VGOPT_STEP;
+        else return error_setInpError(ERR_KEYWORD, toks[3]);
+        return 0;
+    }
     if ( strcomp(toks[2], "GMAX") )
     {
         if ( ! getDouble(toks[3], &x[0]) || x[0] <= 0.0 )

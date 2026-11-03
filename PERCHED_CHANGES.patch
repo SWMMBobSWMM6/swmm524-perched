@@ -1,5 +1,5 @@
 diff --git a/src/solver/lid.c b/src/solver/lid.c
-index ddab7b6..dcdee23 100644
+index ddab7b6..b4ef5ed 100644
 --- a/src/solver/lid.c
 +++ b/src/solver/lid.c
 @@ -207,6 +207,9 @@ static void   freeLidGroup(int j);
@@ -12,7 +12,7 @@ index ddab7b6..dcdee23 100644
  static int    readStorageData(int j, char* tok[], int ntoks);
  static int    readDrainData(int j, char* tok[], int ntoks);
  static int    readDrainMatData(int j, char* toks[], int ntoks);
-@@ -288,6 +291,16 @@ void lid_create(int lidCount, int subcatchCount)
+@@ -288,6 +291,17 @@ void lid_create(int lidCount, int subcatchCount)
          LidProcs[j].drain.offset = 0.0;
          LidProcs[j].drainMat.thickness = 0.0;
          LidProcs[j].drainMat.roughness = 0.0;
@@ -26,10 +26,11 @@ index ddab7b6..dcdee23 100644
 +        LidProcs[j].vgSet[0] = LidProcs[j].vgSet[1] = FALSE;
 +        LidProcs[j].vgMualem[0] = LidProcs[j].vgMualem[1] = 0;
 +        LidProcs[j].vgGmax = 10.0;
++        LidProcs[j].vgOpt = 0;
          LidProcs[j].drainRmvl = NULL;
          LidProcs[j].drainRmvl = (double *)
                                  calloc(Nobjects[POLLUT], sizeof(double));
-@@ -393,6 +406,12 @@ int lid_readProcParams(char* toks[], int ntoks)
+@@ -393,6 +407,12 @@ int lid_readProcParams(char* toks[], int ntoks)
          return 0;
      }
  
@@ -42,7 +43,7 @@ index ddab7b6..dcdee23 100644
      // --- check if second token is name of LID layer
      else m = findmatch(toks[1], LidLayerWords);
  
-@@ -700,6 +719,116 @@ int readSoilData(int j, char* toks[], int ntoks)
+@@ -700,6 +720,128 @@ int readSoilData(int j, char* toks[], int ntoks)
  
  //=============================================================================
  
@@ -113,7 +114,9 @@ index ddab7b6..dcdee23 100644
 +//    LID_ID  VG  SOIL   ThetaR  Alpha  n  [EXP | MUALEM]
 +//    LID_ID  VG  SOIL2  ThetaR  Alpha  n  [EXP | MUALEM]
 +//    LID_ID  VG  GMAX   MaxUpwardGradient
-+//  Alpha is in 1/in (1/mm for SI units).  ThetaS is the layer's porosity.
++//    LID_ID  VG  OPTION TOPFC | FCDRAIN | SOIL2ET | FCHEAD | STEP
++//  Alpha is in 1/in (1/mm for SI units).  Each OPTION line puts back one
++//  perched-engine assumption, for controlled comparisons (see lidproc.c).  ThetaS is the layer's porosity.
 +//  EXP (default) keeps the SOIL line's exponential K(theta); MUALEM uses
 +//  vG-Mualem K(theta).  With both layers given, flow across the interface is
 +//  driven by the head difference between layer midpoints (see lidproc.c).
@@ -123,6 +126,16 @@ index ddab7b6..dcdee23 100644
 +    double x[3];
 +
 +    if ( ntoks < 4 ) return error_setInpError(ERR_ITEMS, "");
++    if ( strcomp(toks[2], "OPTION") )
++    {
++        if      ( strcomp(toks[3], "TOPFC") )   LidProcs[j].vgOpt |= VGOPT_TOPFC;
++        else if ( strcomp(toks[3], "FCDRAIN") ) LidProcs[j].vgOpt |= VGOPT_FCDRAIN;
++        else if ( strcomp(toks[3], "SOIL2ET") ) LidProcs[j].vgOpt |= VGOPT_SOIL2ET;
++        else if ( strcomp(toks[3], "FCHEAD") )  LidProcs[j].vgOpt |= VGOPT_FCHEAD;
++        else if ( strcomp(toks[3], "STEP") )    LidProcs[j].vgOpt |= VGOPT_STEP;
++        else return error_setInpError(ERR_KEYWORD, toks[3]);
++        return 0;
++    }
 +    if ( strcomp(toks[2], "GMAX") )
 +    {
 +        if ( ! getDouble(toks[3], &x[0]) || x[0] <= 0.0 )
@@ -159,7 +172,7 @@ index ddab7b6..dcdee23 100644
  int readStorageData(int j, char* toks[], int ntoks)
  //
  //  Purpose: reads drainage layer data for a LID process from line of input
-@@ -1000,6 +1129,52 @@ void validateLidProc(int j)
+@@ -1000,6 +1142,52 @@ void validateLidProc(int j)
          }
      }
  
@@ -212,7 +225,7 @@ index ddab7b6..dcdee23 100644
      //... check storage layer parameters
      if ( LidProcs[j].storage.thickness > 0.0 )
      {
-@@ -1156,6 +1331,23 @@ void validateLidGroup(int j)
+@@ -1156,6 +1344,23 @@ void validateLidGroup(int j)
              }
          }
          
@@ -236,7 +249,7 @@ index ddab7b6..dcdee23 100644
          //... assign vegetative swale infiltration parameters
          if ( LidProcs[k].lidType == VEG_SWALE )
          {
-@@ -1257,12 +1449,24 @@ void lid_initState()
+@@ -1257,12 +1462,24 @@ void lid_initState()
                      LidProcs[k].soil.wiltPoint);
                  initVol += lidUnit->soilMoisture * LidProcs[k].soil.thickness;
              }
@@ -262,7 +275,7 @@ index ddab7b6..dcdee23 100644
              if ( lidUnit->initSat > 0.0 ) HasWetLids = TRUE;
  
              //... initialize water balance totals
-@@ -1288,6 +1492,8 @@ void lid_initState()
+@@ -1288,6 +1505,8 @@ void lid_initState()
              //... initialize infiltration state variables
              if ( lidUnit->soilInfil.Ks > 0.0 )
                  grnampt_initState(&(lidUnit->soilInfil));
@@ -271,7 +284,7 @@ index ddab7b6..dcdee23 100644
  
              //... add contribution to pervious LID area
              if ( isLidPervious(lidUnit->lidIndex) )
-@@ -2011,6 +2217,9 @@ void initLidRptFile(char* title, char* lidID, char* subcatchID, TLidUnit* lidUni
+@@ -2011,6 +2230,9 @@ void initLidRptFile(char* title, char* lidID, char* subcatchID, TLidUnit* lidUni
      fprintf(f, "SWMM5 LID Report File\n");
      fprintf(f, "\nProject:  %s", title);
      fprintf(f, "\nLID Unit: %s in Subcatchment %s\n", lidID, subcatchID);
@@ -282,10 +295,10 @@ index ddab7b6..dcdee23 100644
      //... write column headings
      for ( i = 0; i < colCount; i++) fprintf(f, "%s", head1[i]);
 diff --git a/src/solver/lid.h b/src/solver/lid.h
-index b250fcf..ed3da12 100644
+index b250fcf..36f85aa 100644
 --- a/src/solver/lid.h
 +++ b/src/solver/lid.h
-@@ -143,6 +143,21 @@ typedef struct
+@@ -143,8 +143,32 @@ typedef struct
      TDrainLayer    drain;         // underdrain system parameters
      TDrainMatLayer drainMat;      // drainage mat layer
      double*        drainRmvl;     // underdrain pollutant removals
@@ -304,10 +317,21 @@ index b250fcf..ed3da12 100644
 +    double         vgN[2];        // van Genuchten n (-), > 1
 +    int            vgMualem[2];   // 1 = vG-Mualem K(theta), 0 = SWMM exponential K
 +    double         vgGmax;        // cap on the upward head gradient (-)
++    int            vgOpt;         // VG OPTION switches (bit flags, 0 = none)
  }  TLidProc;
  
++// swmm524-perched: VG OPTION switches that put back one perched-engine
++// assumption at a time (for controlled comparisons)
++#define VGOPT_TOPFC   1   // topsoil drains only above field capacity
++#define VGOPT_FCDRAIN 2   // SOIL2 drains only above field capacity
++#define VGOPT_SOIL2ET 4   // SOIL2 loses water to ET directly
++#define VGOPT_FCHEAD  8   // Green-Ampt perched head from field capacity
++#define VGOPT_STEP   16   // downward flux = K1 for any positive drive
++
  // Water Balance Statistics
-@@ -182,6 +197,8 @@ typedef struct
+ typedef struct
+ {
+@@ -182,6 +206,8 @@ typedef struct
      TLidRptFile* rptFile;    // pointer to detailed report file
  
      TGrnAmpt soilInfil;      // infil. object for biocell soil layer 
@@ -317,7 +341,7 @@ index b250fcf..ed3da12 100644
      double   paveDepth;      // depth of water in porous pavement layer
      double   soilMoisture;   // moisture content of biocell soil layer
 diff --git a/src/solver/lidproc.c b/src/solver/lidproc.c
-index 85245fb..162901a 100644
+index 85245fb..423a11a 100644
 --- a/src/solver/lidproc.c
 +++ b/src/solver/lidproc.c
 @@ -158,6 +158,17 @@ static double getSurfaceOverflowRate(double* surfaceDepth);
@@ -405,7 +429,7 @@ index 85245fb..162901a 100644
  
          //... if the current LID state is wet but the previous state was dry
          //    for more than one period then write the saved previous results
-@@ -1605,3 +1646,294 @@ int modpuls_solve(int n, double* x, double* xOld, double* xPrev,
+@@ -1605,3 +1646,312 @@ int modpuls_solve(int n, double* x, double* xOld, double* xPrev,
      //... no convergence so return 0
      return 0;
  }
@@ -439,11 +463,21 @@ index 85245fb..162901a 100644
 +        //... VG option: pressure head at the bottom of the topsoil (from the
 +        //    midpoint head, hydrostatic) and the downward head-driven supply;
 +        //    no supply when the heads say water would move up or stand still
++        int opt = theLidProc->vgOpt;
 +        head = MAX(vgHead(0, theta1) + 0.5 * s1->thickness, 0.0);
++        if ( opt & VGOPT_FCHEAD )
++        {
++            head = 0.0;
++            if ( theta1 > s1->fieldCap )
++                head = s1->thickness * (theta1 - s1->fieldCap) /
++                       (s1->porosity - s1->fieldCap);
++        }
 +        drive = vgDrive(theta1, theta2);
 +        supply = 0.0;
-+        if ( drive > 0.0 ) supply = vgK(0, theta1) * MIN(drive, 1.0);
-+        avail  = MAX(theta1 - theLidProc->vgThetaR[0], 0.0) * s1->thickness / Tstep;
++        if ( drive > 0.0 )
++            supply = vgK(0, theta1) * ((opt & VGOPT_STEP) ? 1.0 : MIN(drive, 1.0));
++        avail  = MAX(theta1 - ((opt & VGOPT_TOPFC) ? s1->fieldCap :
++                 theLidProc->vgThetaR[0]), 0.0) * s1->thickness / Tstep;
 +        supply = MIN(supply, avail);
 +    }
 +    else
@@ -647,6 +681,9 @@ index 85245fb..162901a 100644
 +    double soilTheta    = x[SOIL];
 +    double storageDepth = x[STOR];
 +    double theta2, drive, maxRate, room1, avail2;
++    int    opt = theLidProc->vgOpt;
++    double floor1 = (opt & VGOPT_TOPFC)   ? s1->fieldCap : thr1;   // topsoil drains down to
++    double floor2 = (opt & VGOPT_FCDRAIN) ? s2->fieldCap : thr2;   // SOIL2 drains down to
 +
 +    //... convert moisture levels to volumes
 +    SurfaceVolume = surfaceDepth * theLidProc->surface.voidFrac;
@@ -654,17 +691,20 @@ index 85245fb..162901a 100644
 +    StorageVolume = storageDepth * vf2;              // = theta2 * L2
 +    theta2        = StorageVolume / L2;
 +
-+    //... ET: surface water, then topsoil to its WP (none from SOIL2)
++    //... ET: surface water, then topsoil to its WP (none from SOIL2 unless
++    //    the SOIL2ET option puts direct SOIL2 ET back)
 +    getEvapRates(SurfaceVolume, 0.0, MAX(SoilVolume - s1->wiltPoint * L1, 0.0),
-+                 0.0, 1.0);
++                 (opt & VGOPT_SOIL2ET) ? MAX(StorageVolume - s2->wiltPoint * L2, 0.0) : 0.0,
++                 1.0);
++    if ( (opt & VGOPT_SOIL2ET) && soilTheta >= s1->porosity ) StorageEvap = 0.0;
 +
 +    //... head-driven flow across the interface (+ down, - up)
 +    drive = vgDrive(soilTheta, theta2);
 +    if ( drive > 0.0 )
 +    {
-+        SoilPerc = vgK(0, soilTheta) * MIN(drive, 1.0);
++        SoilPerc = vgK(0, soilTheta) * ((opt & VGOPT_STEP) ? 1.0 : MIN(drive, 1.0));
 +        SoilPerc = MIN(SoilPerc, InterfaceCap);
-+        maxRate  = MAX(soilTheta - thr1, 0.0) * L1 / Tstep - SoilEvap;
++        maxRate  = MAX(soilTheta - floor1, 0.0) * L1 / Tstep - SoilEvap;
 +        SoilPerc = MIN(SoilPerc, MAX(maxRate, 0.0));
 +    }
 +    else
@@ -677,8 +717,10 @@ index 85245fb..162901a 100644
 +
 +    //... drainage out of SOIL2: its own K(theta2), unit gradient, no field
 +    //    capacity cutoff, capped by the seepage rate on the STORAGE line
-+    StorageExfil = MIN(vgK(1, theta2), getStorageExfilRate());
-+    maxRate = MAX(theta2 - thr2, 0.0) * L2 / Tstep + SoilPerc - StorageEvap;
++    StorageExfil = 0.0;
++    if ( !(opt & VGOPT_FCDRAIN) || theta2 > floor2 )
++        StorageExfil = MIN(vgK(1, theta2), getStorageExfilRate());
++    maxRate = MAX(theta2 - floor2, 0.0) * L2 / Tstep + SoilPerc - StorageEvap;
 +    StorageExfil = MIN(StorageExfil, MAX(maxRate, 0.0));
 +    StorageDrain = 0.0;
 +

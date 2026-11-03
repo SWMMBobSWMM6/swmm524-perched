@@ -10,3 +10,8 @@ nrtests/
 upload/
 
 *_export.h
+
+# verify.py output
+perched_tests/verify_runs/
+perched_tests/verify_report.json
+__pycache__/

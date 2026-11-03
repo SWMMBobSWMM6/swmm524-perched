@@ -1,0 +1,86 @@
+[
+ {
+  "key": "horton_cap3",
+  "label": "Horton, MaxInfil 3 in",
+  "engine": "stock",
+  "precip": 8.0,
+  "infil": 3.0,
+  "runoff": 4.934,
+  "final_storage": 0.066,
+  "kept": 3.066,
+  "peak_cfs": 34.16,
+  "cont_err": -0.004
+ },
+ {
+  "key": "mh_cap3_stock",
+  "label": "Modified Horton, MaxInfil 3 in, EPA 5.2.4 as released",
+  "engine": "stock",
+  "precip": 8.0,
+  "infil": 0.001,
+  "runoff": 7.933,
+  "final_storage": 0.066,
+  "kept": 0.067,
+  "peak_cfs": 48.35,
+  "cont_err": -0.003
+ },
+ {
+  "key": "mh_cap3_fixed",
+  "label": "Modified Horton, MaxInfil 3 in, with OpenSWMM 5.3.0 fix",
+  "engine": "mhfix",
+  "precip": 8.0,
+  "infil": 3.0,
+  "runoff": 4.934,
+  "final_storage": 0.066,
+  "kept": 3.066,
+  "peak_cfs": 26.52,
+  "cont_err": -0.005
+ },
+ {
+  "key": "mh_nocap",
+  "label": "Modified Horton, no MaxInfil",
+  "engine": "stock",
+  "precip": 8.0,
+  "infil": 6.051,
+  "runoff": 1.949,
+  "final_storage": 0.0,
+  "kept": 6.051,
+  "peak_cfs": 25.33,
+  "cont_err": -0.005
+ },
+ {
+  "key": "horton_nocap",
+  "label": "Horton, no MaxInfil",
+  "engine": "stock",
+  "precip": 8.0,
+  "infil": 5.471,
+  "runoff": 2.53,
+  "final_storage": 0.0,
+  "kept": 5.47,
+  "peak_cfs": 34.16,
+  "cont_err": -0.004
+ },
+ {
+  "key": "perched",
+  "label": "Perched engine: 7.5 in topsoil (3 in of room from dry) over compacted clay",
+  "engine": "perched",
+  "precip": 8.0,
+  "infil": 0.0,
+  "runoff": 4.194,
+  "final_storage": 3.805999999999999,
+  "kept": 3.806,
+  "peak_cfs": 83.9,
+  "cont_err": 0.002
+ },
+ {
+  "key": "lid_bucket",
+  "label": "Stock LID: same topsoil, 24 in clay as storage layer",
+  "engine": "stock",
+  "precip": 8.0,
+  "infil": 0.372,
+  "runoff": 2.235,
+  "final_storage": 5.393,
+  "kept": 5.765,
+  "peak_cfs": 83.9,
+  "cont_err": 0.001
+ }
+]

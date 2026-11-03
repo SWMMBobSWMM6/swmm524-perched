@@ -1,0 +1,83 @@
+[
+ {
+  "key": "A_P1",
+  "desc": "Perched engine (no VG)",
+  "dormant": 83.0,
+  "growing": 97.1,
+  "dormant_all": 86.9,
+  "growing_all": 97.8,
+  "cont": 0.002
+ },
+ {
+  "key": "A_VG",
+  "desc": "Full VG",
+  "dormant": 67.1,
+  "growing": 96.9,
+  "dormant_all": 74.7,
+  "growing_all": 97.6,
+  "cont": 0.002
+ },
+ {
+  "key": "A_TOPFC",
+  "desc": "VG + topsoil FC floor",
+  "dormant": 67.1,
+  "growing": 96.9,
+  "dormant_all": 74.7,
+  "growing_all": 97.6,
+  "cont": 0.002
+ },
+ {
+  "key": "A_FCDRAIN",
+  "desc": "VG + SOIL2 FC floor",
+  "dormant": 67.0,
+  "growing": 96.9,
+  "dormant_all": 74.6,
+  "growing_all": 97.6,
+  "cont": 0.002
+ },
+ {
+  "key": "A_SOIL2ET",
+  "desc": "VG + direct SOIL2 ET",
+  "dormant": 67.1,
+  "growing": 96.1,
+  "dormant_all": 74.7,
+  "growing_all": 97.0,
+  "cont": 0.002
+ },
+ {
+  "key": "A_NOUP",
+  "desc": "VG + no upward flow",
+  "dormant": 71.1,
+  "growing": 96.9,
+  "dormant_all": 77.8,
+  "growing_all": 97.6,
+  "cont": 0.002
+ },
+ {
+  "key": "A_FCHEAD",
+  "desc": "VG + FC-based perched head",
+  "dormant": 68.3,
+  "growing": 97.1,
+  "dormant_all": 75.6,
+  "growing_all": 97.8,
+  "cont": 0.002
+ },
+ {
+  "key": "A_STEP",
+  "desc": "VG with the outline's step rule",
+  "dormant": 59.4,
+  "growing": 96.9,
+  "dormant_all": 68.6,
+  "growing_all": 97.6,
+  "cont": 0.002
+ },
+ {
+  "key": "A_ALLP",
+  "desc": "VG + all perched rules",
+  "dormant": 72.3,
+  "growing": 97.1,
+  "dormant_all": 78.7,
+  "growing_all": 97.8,
+  "cont": 0.002
+ }
+]

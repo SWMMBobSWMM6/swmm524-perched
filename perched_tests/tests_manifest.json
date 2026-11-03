@@ -1,0 +1,49 @@
+{
+ "about": "Expected case counts for verify.py. A group passes only if it executes exactly this many cases and all pass.",
+ "version": "3 Nov 2026",
+ "groups": {
+  "season": {
+   "expected": 46,
+   "reference": "results_B.json",
+   "what": "23 setups x 2 seasons rerun; capture, big-storm capture, runoff depths, .rpt vs .out runoff, continuity"
+  },
+  "ablation": {
+   "expected": 18,
+   "reference": "vg_ablation.json",
+   "what": "9 VG option cases x 2 seasons rerun; big-storm and all-storm capture"
+  },
+  "vg_checks": {
+   "expected": 4,
+   "reference": "vg_checks.py assertions",
+   "what": "closed column (EXP, Mualem), drying column, no-upward-flow column"
+  },
+  "storm8": {
+   "expected": 7,
+   "reference": "storm8_results.json",
+   "what": "eight-inch storm cases; infiltration, runoff, kept, storage, peak"
+  },
+  "parity": {
+   "expected": 930,
+   "reference": "EPA SWMM 5.2.4 .out bytes",
+   "what": "null effect: swmm524-perched vs EPA 5.2.4 on inputs with no SOIL2/VG/STRUCT line; 896 recovery + 28 season + 6 eight-inch inputs; .out and LID report byte-identical"
+  },
+  "openswmm": {
+   "expected": 120,
+   "reference": "engines_results_a4.json",
+   "needs": "OPENSWMM_BIN",
+   "what": "stock, fix, OpenSWMM 5.3.0-beta.3 legacy, OpenSWMM 6.0.0-alpha.4 on season, eight-inch and SOIL2 inputs"
+  }
+ },
+ "tolerance": {
+  "capture_pct": 0.051,
+  "depth_in": 0.0021,
+  "peak_cfs": 0.011,
+  "rpt_vs_out_in": 0.034,
+  "continuity_pct_max": 0.5
+ },
+ "tolerance_notes": {
+  "rpt_vs_out_in": "The Results tab states the .out-integrated runoff matches the .rpt totals within 0.033 in (largest gap: Hmax dormant, 18.656 vs 18.623 in). The .out file holds rates at report times; the .rpt total integrates every runoff step. This check enforces the published figure.",
+  "capture_pct": "Stored capture values are rounded to 0.1 %; a deterministic engine must reproduce them exactly.",
+  "depth_in": "Stored depths are rounded to 0.001 in."
+ }
+}

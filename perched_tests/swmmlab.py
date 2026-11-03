@@ -185,6 +185,8 @@ def write_inp(path, variant, start, end, rain, lid_rpt=None, title="", report_st
                 L += [f"TOP  VG  {lay:<5}  {thr}  {a}  {n}  {km}"]
             if g.get("gmax") is not None:
                 L += [f"TOP  VG  GMAX   {g['gmax']}"]
+            for o in g.get("options", []):
+                L += [f"TOP  VG  OPTION {o}"]
         L += [""]
         rpt = f'"{lid_rpt}"' if lid_rpt else "*"
         L += ["[LID_USAGE]",

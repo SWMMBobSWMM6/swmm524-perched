@@ -50,12 +50,13 @@ TOP  STRUCT   0.2 0.02  0.1                              ; optional
 
 ## Optional: van Genuchten heads across the interface (`VG` lines)
 
-Added 2 Nov 2026, from an outline by a reviewer (items 2 and 3 of four; item 4, the Green-Ampt front at the interface, was already here). Without `VG` lines nothing changes: 214 of 214 study inputs give byte-identical `.out` files with and without the change.
+Added 2 Nov 2026, from an outline by a reviewer (items 2 and 3 of four; item 4, the Green-Ampt front at the interface, was already here). Without `VG` lines nothing changes: on 1,346 of 1,346 study inputs without a `VG` line, this build and the build before VG write byte-identical `.out` files (rerun 3 Nov 2026 with `OPTION` support in).
 
 ```
 TOP  VG  SOIL   0.1018  0.04633  1.3764  EXP     ; thetaR, alpha (1/in, 1/mm in SI), n, EXP | MUALEM
 TOP  VG  SOIL2  0.2053  0.02377  1.5383  EXP
 TOP  VG  GMAX   10                                ; optional cap on the upward gradient, default 10
+TOP  VG  OPTION TOPFC                             ; optional, any number of OPTION lines (below)
 ```
 
 Both `SOIL` and `SOIL2` VG lines are required, along with the `SOIL2` line. ThetaS is the layer's porosity. `EXP` keeps SWMM's exponential K(θ), with no field-capacity cutoff; `MUALEM` uses van Genuchten–Mualem K(θ). EPA 5.2.4 rejects a `VG` line with ERROR 205 rather than misreading it.
@@ -70,7 +71,37 @@ With VG lines, `vgFluxRates()` replaces `perchedFluxRates()`:
 
 The outline's downward rule is q = K1 for any positive drive. The min(drive, 1) factor is the one departure: it keeps the outline's value whenever drive ≥ 1 and tapers the flux to zero as the heads balance, instead of jumping from K1 to zero.
 
-Checks (`perched_tests/vg_checks.py`): in a closed column the heads come to rest within 0.02 of a balanced drive, with no water gained or lost. In a drying column, SOIL2 loses 2.66 in, all of it upward, and none when GMAX is set near zero. WebAssembly and native `.out` files are byte-identical on 16 of 16 VG inputs.
+### `VG OPTION` lines: one perched rule back at a time
+
+Compared with the perched rules, VG mode changes six things at once. Each `OPTION` line restores one perched-engine rule, so a run differs from full VG in exactly one respect:
+
+| OPTION | Restores |
+|---|---|
+| `TOPFC` | topsoil drains to SOIL2 only above field capacity |
+| `FCDRAIN` | SOIL2 drains to the native soil only above field capacity |
+| `SOIL2ET` | SOIL2 loses water to ET directly |
+| `FCHEAD` | Green-Ampt perched head computed from field capacity, not from h1 |
+| `STEP` | the outline's downward rule as written: q = K1 for any positive drive |
+
+`GMAX` near zero (`TOP VG GMAX 1e-9`) removes upward flow. Without `OPTION` lines VG mode is unchanged: this build and the first VG build write byte-identical `.out` files on 27 of 27 VG inputs.
+
+Big-storm capture, synthetic seasons (`perched_tests/vg_ablation.py`), dormant / growing, %:
+
+| Case | Dormant | Growing |
+|---|---|---|
+| Perched (no VG) | 83.0 | 97.1 |
+| Full VG | 67.1 | 96.9 |
+| VG + `TOPFC` | 67.1 | 96.9 |
+| VG + `FCDRAIN` | 67.0 | 96.9 |
+| VG + `SOIL2ET` | 67.1 | 96.1 |
+| VG, no upward flow | 71.1 | 96.9 |
+| VG + `FCHEAD` | 68.3 | 97.1 |
+| VG + `STEP` | 59.4 | 96.9 |
+| VG + all five perched rules | 72.3 | 97.1 |
+
+The field-capacity floors and direct SOIL2 ET barely matter in winter. Upward flow is worth 4 points, the FC-based head 1. With every perched rule restored, 11 of the 16 points remain: they come from the head-driven downward rule and the vG retention curves themselves. The taper is not a detail: the outline's step rule gives 59.4 % against 67.1 % with the taper.
+
+Checks (`perched_tests/vg_checks.py`): in a closed column the heads come to rest within 0.02 of a balanced drive, with no water gained or lost. In a drying column, SOIL2 loses 2.66 in, all of it upward, and none when GMAX is set near zero. WebAssembly and native `.out` files are byte-identical on 38 of 38 VG inputs, the `OPTION` cases included.
 
 Effect in the synthetic dormant season (`examples/perched_P1vg_dormant_season.inp`): big-storm capture falls from 83.0 % (perched) to 67.1 % (VG, EXP K) and 60.5 % (VG, Mualem K). Topsoil hours near saturation go from 34 to 68.
 
@@ -78,7 +109,7 @@ Effect in the synthetic dormant season (`examples/perched_P1vg_dormant_season.in
 
 | Check | Result |
 |---|---|
-| No `SOIL2` line, against EPA 5.2.4 (598 inputs: Horton, stock LID storage layer, no-storage LID, impermeable cases) | **598 of 598 `.out` files byte-identical** |
+| No `SOIL2`, `VG` or `STRUCT` line, against EPA 5.2.4 (`verify.py`, parity group: 930 inputs generated fresh, 896 recovery + 28 season + 6 eight-inch storm) | **930 of 930 `.out` files and LID reports byte-identical** |
 | `STRUCT 0 0 1` against no `STRUCT` | byte-identical `.out` |
 | Limiting case: K2 = 1000 in/hr, FC2 ≈ WP2 ≈ 0, no suction. The interface no longer limits, so the result should equal the stock storage-layer bucket. | test-storm runoff difference **0.000 in** across all 64 recovery cases. Both seasons capture 100 %, as stock L0 does. |
 | Runoff continuity, perched runs | ≤ 0.003 % |
@@ -123,7 +154,14 @@ cmake --build . -j
 
 On Ubuntu 24 with `_FORTIFY_SOURCE` on, the 5.2.4 command-line build aborts at "Retrieving project data", for stock EPA as well as this engine.
 
-`perched_tests/` holds the harness: the `.inp` writer, the recovery, season and saturation runners, the parity check against a stock 5.2.4 binary, and the result files. Set `SWMM_ENGINE` to a stock 5.2.4 `runswmm` and `SWMM_PERCHED_ENGINE` to this one.
+`perched_tests/` holds the harness: the `.inp` writer, the recovery, season and saturation runners, the VG checks and option ablation, and the result files. Set `SWMM_ENGINE` to a stock 5.2.4 `runswmm`, `SWMM_MHFIX_ENGINE` to the MaxInfil-fix build and `SWMM_PERCHED_ENGINE` to this one, then:
+
+```
+cd perched_tests
+python3 verify.py --skip-openswmm     # exits 1 on any missing engine, count mismatch or moved number
+```
+
+`verify.py` reruns every stored number against a fresh run and checks each group's case count against `tests_manifest.json` (season 46, ablation 18, VG checks 4, eight-inch storm 7, parity 930). The full study, with the OpenSWMM comparison, is in the Topsoil Recovery Check download.
 
 ## WebAssembly build
 
