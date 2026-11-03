@@ -16,6 +16,7 @@ All inputs US customary.  Engine: EPA SWMM 5.2.4 built from the v5.2.4 tag.
 import os, struct, subprocess, math, re
 
 ENGINE = os.environ.get("SWMM_ENGINE", "/root/swmm524/build/bin/Release/runswmm")
+MHFIX_ENGINE = os.environ.get("SWMM_MHFIX_ENGINE", "/root/swmm524-mhfix/build/bin/Release/runswmm")
 PERCHED_ENGINE = os.environ.get("SWMM_PERCHED_ENGINE", "/root/swmm524-perched/build/bin/Release/runswmm")
 AREA_AC = 1.0
 AREA_FT2 = 43560.0
@@ -36,19 +37,36 @@ PET_RECOVERY = [round(p / max(PET), 3) for p in PET]
 
 # ---- variants ----------------------------------------------------------------
 def horton(f0=3.0, fmin=SUB["ksat"], store=TOP_DRAINABLE, dry=7.0, maxinfil=0.0,
-           recovery=None):
+           recovery=None, model="MODIFIED_HORTON", engine=None):
     kd = (f0 - fmin) / store
-    return dict(kind="horton", f0=f0, fmin=fmin, kd=kd, dry=dry,
-                maxinfil=maxinfil, recovery=recovery)
+    d = dict(kind="horton", f0=f0, fmin=fmin, kd=kd, dry=dry,
+             maxinfil=maxinfil, recovery=recovery, model=model)
+    if engine:
+        d["engine"] = engine
+    return d
 
-def perched(k2=SUB["ksat"], seep=None, struct=None, soil2=None):
-    """swmm524-perched: topsoil over SOIL2 with a conductivity-limited interface."""
+def perched(k2=SUB["ksat"], seep=None, struct=None, soil2=None, top=None, vg=None):
+    """swmm524-perched: topsoil over SOIL2 with a conductivity-limited interface.
+    vg = dict(soil=(thetaR, alpha_per_in, n, 'EXP'|'MUALEM'), soil2=(...), gmax=10.0)
+    adds the VG lines (van Genuchten option)."""
     s2 = dict(thick=SUB["thick"], por=SUB["por"], fc=SUB["fc"], wp=SUB["wp"],
               ksat=k2, hco=50.0, suct=SUB["suct"])
     if soil2:
         s2.update(soil2)
-    return dict(kind="perched", soil2=s2, seep=(k2 if seep is None else seep),
-                struct=struct, engine=PERCHED_ENGINE)
+    d = dict(kind="perched", soil2=s2, seep=(k2 if seep is None else seep),
+             struct=struct, engine=PERCHED_ENGINE)
+    if top:
+        d["top"] = top
+    if vg:
+        d["vg"] = vg
+    return d
+
+# van Genuchten curves fitted so each passes through the SOIL line's FC (-330 cm)
+# and WP (-15000 cm) with thetaS = porosity, and gives the line's Green-Ampt
+# suction as its wetting-front suction (Neuman integral of vG-Mualem Kr).
+# Compacted SaCl: suction 25.6 cm (10.08 in), the value in the questioner's van Genuchten outline.
+VG_TOP  = (0.1018, 0.04633, 1.3764)     # topsoil: FC 0.30, WP 0.15, suction 3.5 in
+VG_SACL = (0.2053, 0.02377, 1.5383)     # sandy clay: FC 0.321, WP 0.221, suction 10.08 in
 
 ILLUSTRATIVE_STRUCT = (0.2, 0.02, 0.1)   # decay 1/day saturated, recovery 1/day <= FC, floor
 
@@ -68,6 +86,12 @@ VARIANTS = {
              horton(fmin=0.0)),
     "Hmax": ("H0 with MaxInfil = 0.80 in (5.2.4 defect check)",
              horton(maxinfil=TOP_DRAINABLE)),
+    "Hmaxf":("H0 with MaxInfil = 0.80 in, OpenSWMM 5.3.0 fix ported to 5.2.4",
+             horton(maxinfil=TOP_DRAINABLE, engine=MHFIX_ENGINE)),
+    "HS":   ("Standard Horton, MaxInfil = 0.80 in (cap = topsoil drainable storage)",
+             horton(maxinfil=TOP_DRAINABLE, model="HORTON")),
+    "HSz":  ("HS with an impermeable subsoil (fmin = 0)",
+             horton(fmin=0.0, maxinfil=TOP_DRAINABLE, model="HORTON")),
     # LID family
     "L0":   ("LID: storage = 24 in SaCl, void ratio from TOTAL porosity 0.43",
              lid()),
@@ -92,6 +116,14 @@ VARIANTS = {
     "P2s":  ("P1s + the same STRUCT (illustrative)",
              perched(k2=0.002, struct=ILLUSTRATIVE_STRUCT)),
     # controls for the perched engine
+    # van Genuchten option (swmm524-perched VG lines); SOIL2 suction stays 9.45 in so
+    # the only change from P1 / P1s is the VG lines
+    "P1vg":  ("P1 + VG lines (head-driven interface, exponential K)",
+              perched(vg=dict(soil=VG_TOP + ("EXP",), soil2=VG_SACL + ("EXP",)))),
+    "P1vgm": ("P1 + VG lines with vG-Mualem K",
+              perched(vg=dict(soil=VG_TOP + ("MUALEM",), soil2=VG_SACL + ("MUALEM",)))),
+    "P1svg": ("P1s + VG lines (tighter clay, exponential K)",
+              perched(k2=0.002, vg=dict(soil=VG_TOP + ("EXP",), soil2=VG_SACL + ("EXP",)))),
     "Pinf": ("Limiting case: SOIL2 Ksat 1000 in/hr, FC~WP~0, no suction, seepage 0.01 (should match L0)",
              perched(k2=1000.0, seep=SUB["ksat"],
                      soil2=dict(fc=0.000002, wp=0.000001, hco=0.0, suct=0.0))),
@@ -103,7 +135,7 @@ VARIANTS = {
 def fmt_date(d):           # d = datetime
     return d.strftime("%m/%d/%Y"), d.strftime("%H:%M:%S")
 
-def write_inp(path, variant, start, end, rain, lid_rpt=None, title="", report_step="00:05:00"):
+def write_inp(path, variant, start, end, rain, lid_rpt=None, title="", report_step="00:05:00", rain_interval="1:00"):
     """rain: list of (datetime, intensity in/hr) at 1-hr spacing (nonzero hours only)."""
     v = variant
     sd, st = fmt_date(start)
@@ -112,7 +144,7 @@ def write_inp(path, variant, start, end, rain, lid_rpt=None, title="", report_st
     L += ["[TITLE]", title or os.path.basename(path), ""]
     L += ["[OPTIONS]",
           "FLOW_UNITS           CFS",
-          "INFILTRATION         MODIFIED_HORTON",
+          "INFILTRATION         " + (v.get("model", "MODIFIED_HORTON") if v["kind"] == "horton" else "MODIFIED_HORTON"),
           "FLOW_ROUTING         KINWAVE",
           f"START_DATE           {sd}", f"START_TIME           {st}",
           f"REPORT_START_DATE    {sd}", f"REPORT_START_TIME    {st}",
@@ -129,12 +161,12 @@ def write_inp(path, variant, start, end, rain, lid_rpt=None, title="", report_st
     if v["kind"] == "horton" and v.get("recovery"):
         L += ["RECOVERY REC"]
     L += [""]
-    L += ["[RAINGAGES]", "RG1  INTENSITY 1:00 1.0 TIMESERIES RAIN", ""]
+    L += ["[RAINGAGES]", f"RG1  INTENSITY {rain_interval} 1.0 TIMESERIES RAIN", ""]
     L += ["[SUBCATCHMENTS]",
           f"S1  RG1  OUT1  {AREA_AC}  0  {WIDTH}  2.0  0", ""]
     L += ["[SUBAREAS]", "S1  0.012  0.15  0.05  0.05  0  OUTLET", ""]
     if v["kind"] == "perched":
-        t, s2 = TOP, v["soil2"]
+        t, s2 = v.get("top", TOP), v["soil2"]
         L += ["[INFILTRATION]", "S1  3.0  0.01  3.7375  7  0", ""]
         L += ["[LID_CONTROLS]",
               "TOP  BC",
@@ -146,6 +178,13 @@ def write_inp(path, variant, start, end, rain, lid_rpt=None, title="", report_st
         if v.get("struct"):
             kd, kr, smin = v["struct"]
             L += [f"TOP  STRUCT   {kd}  {kr}  {smin}"]
+        if v.get("vg"):
+            g = v["vg"]
+            for lay, key in (("SOIL", "soil"), ("SOIL2", "soil2")):
+                thr, a, n, km = (tuple(g[key]) + ("EXP",))[:4]
+                L += [f"TOP  VG  {lay:<5}  {thr}  {a}  {n}  {km}"]
+            if g.get("gmax") is not None:
+                L += [f"TOP  VG  GMAX   {g['gmax']}"]
         L += [""]
         rpt = f'"{lid_rpt}"' if lid_rpt else "*"
         L += ["[LID_USAGE]",

@@ -150,6 +150,14 @@ typedef struct
     double         structKd;      // structure decay rate while saturated (1/day)
     double         structKr;      // structure recovery rate while <= FC (1/day)
     double         structMin;     // floor on the structure factor (fraction)
+    // --- swmm524-perched: optional van Genuchten retention (VG lines) ---
+    int            hasVG;         // TRUE when both SOIL and SOIL2 VG lines are given
+    int            vgSet[2];      // VG line read for [0] = SOIL, [1] = SOIL2
+    double         vgThetaR[2];   // residual moisture content (-)
+    double         vgAlpha[2];    // van Genuchten alpha (1/ft)
+    double         vgN[2];        // van Genuchten n (-), > 1
+    int            vgMualem[2];   // 1 = vG-Mualem K(theta), 0 = SWMM exponential K
+    double         vgGmax;        // cap on the upward head gradient (-)
 }  TLidProc;
 
 // Water Balance Statistics

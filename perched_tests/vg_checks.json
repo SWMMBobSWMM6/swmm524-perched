@@ -1,0 +1,92 @@
+{
+ "G1_EXP": {
+  "start": {
+   "theta1": 0.32499999999999996,
+   "theta2": 0.3255,
+   "drive": 2.991,
+   "h1": -91.5,
+   "h2": -119.4
+  },
+  "end": {
+   "theta1": 0.302,
+   "theta2": 0.329,
+   "drive": -0.0162,
+   "h1": -126.16,
+   "h2": -111.93
+  },
+  "water_in_start": 9.112,
+  "water_in_end": 9.104,
+  "cont": 0.0,
+  "errors": [],
+  "last_row_hours": 1.383,
+  "lid_summary": {
+   "inflow": 0.0,
+   "evap": 0.0,
+   "infil": 0.0,
+   "surf_out": 0.0,
+   "drain": 0.0,
+   "init_stor": 9.11,
+   "final_stor": 9.11,
+   "cont": 0.0
+  }
+ },
+ "G1_MUALEM": {
+  "note": "no LID report rows: every flow below MINFLOW",
+  "lid_summary": {
+   "inflow": 0.0,
+   "evap": 0.0,
+   "infil": 0.0,
+   "surf_out": 0.0,
+   "drain": 0.0,
+   "init_stor": 9.11,
+   "final_stor": 9.11,
+   "cont": 0.0
+  },
+  "cont": 0.0,
+  "errors": []
+ },
+ "G2_drying": {
+  "theta1_start": 0.5,
+  "theta1_end": 0.15,
+  "theta2_start": 0.43,
+  "theta2_end": 0.319,
+  "soil2_loss_in": 2.664,
+  "lid_evap_in": 4.069,
+  "rows_with_upward_flow": 39110,
+  "max_upward_in_hr": 0.006,
+  "cont": 0.0,
+  "errors": [],
+  "lid_summary": {
+   "inflow": 0.0,
+   "evap": 4.07,
+   "infil": 0.0,
+   "surf_out": 0.0,
+   "drain": 0.0,
+   "init_stor": 12.32,
+   "final_stor": 8.25,
+   "cont": -0.0
+  }
+ },
+ "G3_no_upward": {
+  "theta1_start": 0.5,
+  "theta1_end": 0.15,
+  "theta2_start": 0.43,
+  "theta2_end": 0.43,
+  "soil2_loss_in": 0.0,
+  "lid_evap_in": 1.4,
+  "rows_with_upward_flow": 0,
+  "max_upward_in_hr": -0.0,
+  "cont": 0.0,
+  "errors": [],
+  "lid_summary": {
+   "inflow": 0.0,
+   "evap": 1.4,
+   "infil": 0.0,
+   "surf_out": 0.0,
+   "drain": 0.0,
+   "init_stor": 12.32,
+   "final_stor": 10.92,
+   "cont": -0.0
+  }
+ }
+}

@@ -165,6 +165,10 @@ static double  StructF;        // topsoil structure factor for this step
 static void    perchedFluxRates(double x[], double f[]);
 static double  getInterfaceCap(void);
 static void    updateStructFactor(void);
+static void    vgFluxRates(double x[], double f[]);      // VG option
+static double  vgHead(int k, double theta);
+static double  vgK(int k, double theta);
+static double  vgDrive(double theta1, double theta2);
 static double getStorageDrainRate(double storageDepth, double soilTheta,
               double paveDepth, double surfaceDepth);
 static double getDrainMatOutflow(double depth);
@@ -326,6 +330,7 @@ double lidproc_getOutflow(TLidUnit* lidUnit, TLidProc* lidProc, double inflow,
                           {
                               InterfaceCap = getInterfaceCap();
                               fluxRates = &perchedFluxRates;
+                              if ( theLidProc->hasVG ) fluxRates = &vgFluxRates;
                           }
                           break;
     case GREEN_ROOF:      fluxRates = &greenRoofFluxRates; break;
@@ -418,6 +423,7 @@ void lidproc_saveResults(TLidUnit* lidUnit, double ucfRainfall, double ucfRainDe
 
     //... swmm524-perched: a draining perched zone counts as activity
     if ( theLidProc->perched && SoilPerc >= MINFLOW ) isDry = FALSE;
+    if ( theLidProc->hasVG && -SoilPerc >= MINFLOW ) isDry = FALSE;  // upward flow
 
     //... update status of HasWetLids
     if ( !isDry ) HasWetLids = TRUE;
@@ -1663,8 +1669,22 @@ double getInterfaceCap()
     double theta1 = theLidUnit->soilMoisture;
     double theta2 = theLidUnit->storageDepth * theLidProc->storage.voidFrac /
                     theLidProc->storage.thickness;
-    double head = 0.0, supply, avail, cap, saveS, deficit;
+    double head = 0.0, supply, avail, cap, saveS, deficit, drive;
 
+    if ( theLidProc->hasVG )
+    {
+        //... VG option: pressure head at the bottom of the topsoil (from the
+        //    midpoint head, hydrostatic) and the downward head-driven supply;
+        //    no supply when the heads say water would move up or stand still
+        head = MAX(vgHead(0, theta1) + 0.5 * s1->thickness, 0.0);
+        drive = vgDrive(theta1, theta2);
+        supply = 0.0;
+        if ( drive > 0.0 ) supply = vgK(0, theta1) * MIN(drive, 1.0);
+        avail  = MAX(theta1 - theLidProc->vgThetaR[0], 0.0) * s1->thickness / Tstep;
+        supply = MIN(supply, avail);
+    }
+    else
+    {
     //... saturated (perched) depth at the bottom of the topsoil
     if ( theta1 > s1->fieldCap )
         head = s1->thickness * (theta1 - s1->fieldCap) /
@@ -1675,6 +1695,7 @@ double getInterfaceCap()
     supply = getSoilPercRate(theta1) * StructF;
     avail  = MAX(theta1 - s1->fieldCap, 0.0) * s1->thickness / Tstep;
     supply = MIN(supply, avail);
+    }
 
     //... the Green-Ampt deficit cannot exceed the lower layer's actual
     //    free pore space
@@ -1774,4 +1795,145 @@ void updateStructFactor()
     else if ( theta <= theLidProc->soil.fieldCap )
         sf = 1.0 - (1.0 - sf) * exp(-theLidProc->structKr * days);
     theLidUnit->structFactor = MAX(MIN(sf, 1.0), smin);
+}
+
+//=============================================================================
+//  swmm524-perched: van Genuchten option (VG lines).  Each layer keeps one
+//  moisture state; its pressure head comes from the vG curve with
+//  thetaS = porosity.  Flow across the interface is driven by the head
+//  difference between the layer midpoints instead of stopping at field
+//  capacity:
+//      drive = (h1 - h2) / dz + 1,   dz = (L1 + L2) / 2
+//      drive > 0: q = K1(theta1) * min(drive, 1), capped by the Green-Ampt
+//                 front entering SOIL2 (InterfaceCap)
+//      drive < 0: q = -K2(theta2) * min(-drive, GMAX)   (upward flow)
+//  SOIL2 drains to native soil at K2(theta2), unit gradient, with no field
+//  capacity cutoff, capped by the STORAGE line's seepage rate.  ET draws on
+//  the surface and the topsoil only; SOIL2 water reaches the surface by
+//  upward flow.
+//=============================================================================
+
+double vgHead(int k, double theta)
+//
+//  Purpose: pressure head (ft, <= 0) of layer k (0 = SOIL, 1 = SOIL2).
+//
+{
+    double ths = (k == 0) ? theLidProc->soil.porosity : theLidProc->soil2.porosity;
+    double thr = theLidProc->vgThetaR[k];
+    double n   = theLidProc->vgN[k];
+    double m   = 1.0 - 1.0 / n;
+    double se  = (theta - thr) / (ths - thr);
+
+    if ( se >= 1.0 ) return 0.0;
+    se = MAX(se, 1.0e-6);
+    return -pow(pow(se, -1.0 / m) - 1.0, 1.0 / n) / theLidProc->vgAlpha[k];
+}
+
+//=============================================================================
+
+double vgK(int k, double theta)
+//
+//  Purpose: unsaturated hydraulic conductivity (ft/s) of layer k, with no
+//           field capacity cutoff.  The topsoil value includes the
+//           structure factor.
+//
+{
+    TSoilLayer* s = (k == 0) ? &theLidProc->soil : &theLidProc->soil2;
+    double kSat = s->kSat * ((k == 0) ? StructF : 1.0);
+    double thr, se, m, a;
+
+    if ( theta >= s->porosity ) return kSat;
+    if ( !theLidProc->vgMualem[k] )
+        return kSat * exp(-(s->porosity - theta) * s->kSlope);
+    thr = theLidProc->vgThetaR[k];
+    se  = (theta - thr) / (s->porosity - thr);
+    if ( se <= 0.0 ) return 0.0;
+    m = 1.0 - 1.0 / theLidProc->vgN[k];
+    a = 1.0 - pow(1.0 - pow(se, 1.0 / m), m);
+    return kSat * sqrt(se) * a * a;
+}
+
+//=============================================================================
+
+double vgDrive(double theta1, double theta2)
+//
+//  Purpose: downward head gradient between the layer midpoints (-).
+//
+{
+    double dz = 0.5 * (theLidProc->soil.thickness + theLidProc->storage.thickness);
+    return (vgHead(0, theta1) - vgHead(1, theta2)) / dz + 1.0;
+}
+
+//=============================================================================
+
+void vgFluxRates(double x[], double f[])
+//
+//  Purpose: flux rates for the perched two-layer cell with the VG option.
+//  Input:   x = vector of storage levels (surface depth, theta1, equiv. depth)
+//  Output:  f = vector of flux rates
+//
+{
+    TSoilLayer* s1 = &theLidProc->soil;
+    TSoilLayer* s2 = &theLidProc->soil2;
+    double L1  = s1->thickness;
+    double L2  = theLidProc->storage.thickness;
+    double vf2 = theLidProc->storage.voidFrac;
+    double thr1 = theLidProc->vgThetaR[0];
+    double thr2 = theLidProc->vgThetaR[1];
+    double surfaceDepth = x[SURF];
+    double soilTheta    = x[SOIL];
+    double storageDepth = x[STOR];
+    double theta2, drive, maxRate, room1, avail2;
+
+    //... convert moisture levels to volumes
+    SurfaceVolume = surfaceDepth * theLidProc->surface.voidFrac;
+    SoilVolume    = soilTheta * L1;
+    StorageVolume = storageDepth * vf2;              // = theta2 * L2
+    theta2        = StorageVolume / L2;
+
+    //... ET: surface water, then topsoil to its WP (none from SOIL2)
+    getEvapRates(SurfaceVolume, 0.0, MAX(SoilVolume - s1->wiltPoint * L1, 0.0),
+                 0.0, 1.0);
+
+    //... head-driven flow across the interface (+ down, - up)
+    drive = vgDrive(soilTheta, theta2);
+    if ( drive > 0.0 )
+    {
+        SoilPerc = vgK(0, soilTheta) * MIN(drive, 1.0);
+        SoilPerc = MIN(SoilPerc, InterfaceCap);
+        maxRate  = MAX(soilTheta - thr1, 0.0) * L1 / Tstep - SoilEvap;
+        SoilPerc = MIN(SoilPerc, MAX(maxRate, 0.0));
+    }
+    else
+    {
+        SoilPerc = vgK(1, theta2) * MIN(-drive, theLidProc->vgGmax);
+        avail2   = MAX(theta2 - thr2, 0.0) * L2 / Tstep;
+        room1    = MAX(s1->porosity - soilTheta, 0.0) * L1 / Tstep;
+        SoilPerc = -MIN(SoilPerc, MIN(avail2, room1));
+    }
+
+    //... drainage out of SOIL2: its own K(theta2), unit gradient, no field
+    //    capacity cutoff, capped by the seepage rate on the STORAGE line
+    StorageExfil = MIN(vgK(1, theta2), getStorageExfilRate());
+    maxRate = MAX(theta2 - thr2, 0.0) * L2 / Tstep + SoilPerc - StorageEvap;
+    StorageExfil = MIN(StorageExfil, MAX(maxRate, 0.0));
+    StorageDrain = 0.0;
+
+    //... limit downward flow by unused SOIL2 pore space
+    if ( SoilPerc > 0.0 )
+    {
+        maxRate = StorageExfil + StorageEvap + (s2->porosity - theta2) * L2 / Tstep;
+        SoilPerc = MIN(SoilPerc, MAX(maxRate, 0.0));
+    }
+
+    //... limit surface infiltration by unused topsoil pore space
+    maxRate = (s1->porosity - soilTheta) * L1 / Tstep + SoilPerc + SoilEvap;
+    SurfaceInfil = MIN(SurfaceInfil, MAX(maxRate, 0.0));
+
+    //... surface outflow and layer flux rates
+    SurfaceOutflow = getSurfaceOutflowRate(surfaceDepth);
+    f[SURF] = (SurfaceInflow - SurfaceEvap - SurfaceInfil - SurfaceOutflow) /
+              theLidProc->surface.voidFrac;
+    f[SOIL] = (SurfaceInfil - SoilEvap - SoilPerc) / L1;
+    f[STOR] = (SoilPerc - StorageEvap - StorageExfil) / vf2;
 }

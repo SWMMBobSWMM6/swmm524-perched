@@ -48,6 +48,32 @@ TOP  STRUCT   0.2 0.02  0.1                              ; optional
 4. **SOIL2 storage.** SOIL2 is stored in the existing storage slot as an equivalent depth, θ2 = depth·φ2/L2, so the water balance, limits and continuity code run unchanged.
 5. **Structure** (optional). After each step: s ← s_min + (s − s_min)·e^(−kd·Δt) while saturated, and s ← 1 − (1 − s)·e^(−kr·Δt) while at or below FC.
 
+## Optional: van Genuchten heads across the interface (`VG` lines)
+
+Added 2 Nov 2026, from an outline by a reviewer (items 2 and 3 of four; item 4, the Green-Ampt front at the interface, was already here). Without `VG` lines nothing changes: 214 of 214 study inputs give byte-identical `.out` files with and without the change.
+
+```
+TOP  VG  SOIL   0.1018  0.04633  1.3764  EXP     ; thetaR, alpha (1/in, 1/mm in SI), n, EXP | MUALEM
+TOP  VG  SOIL2  0.2053  0.02377  1.5383  EXP
+TOP  VG  GMAX   10                                ; optional cap on the upward gradient, default 10
+```
+
+Both `SOIL` and `SOIL2` VG lines are required, along with the `SOIL2` line. ThetaS is the layer's porosity. `EXP` keeps SWMM's exponential K(θ), with no field-capacity cutoff; `MUALEM` uses van Genuchten–Mualem K(θ). EPA 5.2.4 rejects a `VG` line with ERROR 205 rather than misreading it.
+
+With VG lines, `vgFluxRates()` replaces `perchedFluxRates()`:
+
+1. Each layer's pressure head comes from its curve, h(θ). The downward gradient between the layer midpoints is drive = (h1 − h2)/Δz + 1, with Δz = (L1 + L2)/2.
+2. drive > 0: q = K1(θ1) · min(drive, 1), capped by the Green-Ampt front into SOIL2. The perched head in that cap becomes max(0, h1 + L1/2).
+3. drive < 0: q = −K2(θ2) · min(−drive, GMAX) (upward flow), limited by the water SOIL2 holds and the room left in the topsoil.
+4. SOIL2 drains to the native soil at K2(θ2), unit gradient, with no field-capacity cutoff, capped by the STORAGE seepage rate.
+5. ET draws from the surface and the topsoil only; SOIL2 water reaches the air by upward flow.
+
+The outline's downward rule is q = K1 for any positive drive. The min(drive, 1) factor is the one departure: it keeps the outline's value whenever drive ≥ 1 and tapers the flux to zero as the heads balance, instead of jumping from K1 to zero.
+
+Checks (`perched_tests/vg_checks.py`): in a closed column the heads come to rest within 0.02 of a balanced drive, with no water gained or lost. In a drying column, SOIL2 loses 2.66 in, all of it upward, and none when GMAX is set near zero. WebAssembly and native `.out` files are byte-identical on 16 of 16 VG inputs.
+
+Effect in the synthetic dormant season (`examples/perched_P1vg_dormant_season.inp`): big-storm capture falls from 83.0 % (perched) to 67.1 % (VG, EXP K) and 60.5 % (VG, Mualem K). Topsoil hours near saturation go from 34 to 68.
+
 ## Controls
 
 | Check | Result |

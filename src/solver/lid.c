@@ -209,6 +209,7 @@ static int    readPavementData(int j, char* tok[], int ntoks);
 static int    readSoilData(int j, char* tok[], int ntoks);
 static int    readSoil2Data(int j, char* tok[], int ntoks);    // swmm524-perched
 static int    readStructData(int j, char* tok[], int ntoks);   // swmm524-perched
+static int    readVGData(int j, char* tok[], int ntoks);       // swmm524-perched
 static int    readStorageData(int j, char* tok[], int ntoks);
 static int    readDrainData(int j, char* tok[], int ntoks);
 static int    readDrainMatData(int j, char* toks[], int ntoks);
@@ -296,6 +297,10 @@ void lid_create(int lidCount, int subcatchCount)
         LidProcs[j].structKd = 0.0;
         LidProcs[j].structKr = 0.0;
         LidProcs[j].structMin = 1.0;
+        LidProcs[j].hasVG = FALSE;
+        LidProcs[j].vgSet[0] = LidProcs[j].vgSet[1] = FALSE;
+        LidProcs[j].vgMualem[0] = LidProcs[j].vgMualem[1] = 0;
+        LidProcs[j].vgGmax = 10.0;
         LidProcs[j].drainRmvl = NULL;
         LidProcs[j].drainRmvl = (double *)
                                 calloc(Nobjects[POLLUT], sizeof(double));
@@ -405,6 +410,7 @@ int lid_readProcParams(char* toks[], int ntoks)
     //     tested before findmatch() so SOIL2 is not read as SOIL)
     if ( strcomp(toks[1], "SOIL2") )  return readSoil2Data(j, toks, ntoks);
     if ( strcomp(toks[1], "STRUCT") ) return readStructData(j, toks, ntoks);
+    if ( strcomp(toks[1], "VG") )     return readVGData(j, toks, ntoks);
 
     // --- check if second token is name of LID layer
     else m = findmatch(toks[1], LidLayerWords);
@@ -773,6 +779,56 @@ int readStructData(int j, char* toks[], int ntoks)
 
 //=============================================================================
 
+int readVGData(int j, char* toks[], int ntoks)
+//
+//  swmm524-perched: optional van Genuchten retention for the two soil layers
+//  of a perched bio-retention cell.
+//    LID_ID  VG  SOIL   ThetaR  Alpha  n  [EXP | MUALEM]
+//    LID_ID  VG  SOIL2  ThetaR  Alpha  n  [EXP | MUALEM]
+//    LID_ID  VG  GMAX   MaxUpwardGradient
+//  Alpha is in 1/in (1/mm for SI units).  ThetaS is the layer's porosity.
+//  EXP (default) keeps the SOIL line's exponential K(theta); MUALEM uses
+//  vG-Mualem K(theta).  With both layers given, flow across the interface is
+//  driven by the head difference between layer midpoints (see lidproc.c).
+//
+{
+    int    i, k;
+    double x[3];
+
+    if ( ntoks < 4 ) return error_setInpError(ERR_ITEMS, "");
+    if ( strcomp(toks[2], "GMAX") )
+    {
+        if ( ! getDouble(toks[3], &x[0]) || x[0] <= 0.0 )
+            return error_setInpError(ERR_NUMBER, toks[3]);
+        LidProcs[j].vgGmax = x[0];
+        return 0;
+    }
+    if      ( strcomp(toks[2], "SOIL") )  k = 0;
+    else if ( strcomp(toks[2], "SOIL2") ) k = 1;
+    else return error_setInpError(ERR_KEYWORD, toks[2]);
+    if ( ntoks < 6 ) return error_setInpError(ERR_ITEMS, "");
+    for (i = 3; i < 6; i++)
+    {
+        if ( ! getDouble(toks[i], &x[i-3]) || x[i-3] < 0.0 )
+            return error_setInpError(ERR_NUMBER, toks[i]);
+    }
+    if ( x[1] <= 0.0 ) return error_setInpError(ERR_NUMBER, toks[4]);
+    if ( x[2] <= 1.0 ) return error_setInpError(ERR_NUMBER, toks[5]);
+    LidProcs[j].vgMualem[k] = 0;
+    if ( ntoks > 6 )
+    {
+        if      ( strcomp(toks[6], "MUALEM") ) LidProcs[j].vgMualem[k] = 1;
+        else if ( ! strcomp(toks[6], "EXP") )  return error_setInpError(ERR_KEYWORD, toks[6]);
+    }
+    LidProcs[j].vgThetaR[k] = x[0];
+    LidProcs[j].vgAlpha[k]  = x[1] * UCF(RAINDEPTH);    // 1/in or 1/mm -> 1/ft
+    LidProcs[j].vgN[k]      = x[2];
+    LidProcs[j].vgSet[k]    = TRUE;
+    return 0;
+}
+
+//=============================================================================
+
 int readStorageData(int j, char* toks[], int ntoks)
 //
 //  Purpose: reads drainage layer data for a LID process from line of input
@@ -1092,8 +1148,32 @@ void validateLidProc(int j)
         LidProcs[j].storage.voidFrac   = LidProcs[j].soil2.porosity;
         LidProcs[j].storage.clogFactor = 0.0;
         LidProcs[j].drain.coeff = 0.0;
+
+        //... swmm524-perched: van Genuchten option needs both layers
+        if ( LidProcs[j].vgSet[0] || LidProcs[j].vgSet[1] )
+        {
+            if ( !LidProcs[j].vgSet[0] || !LidProcs[j].vgSet[1]
+            ||   LidProcs[j].vgThetaR[0] >= LidProcs[j].soil.porosity
+            ||   LidProcs[j].vgThetaR[1] >= LidProcs[j].soil2.porosity )
+            {
+                sstrncpy(Msg, LidProcs[j].ID, MAXMSG);
+                sstrcat(Msg, ERR_SOIL_LAYER, MAXMSG);
+                report_writeErrorMsg(ERR_LID_PARAMS, Msg);
+            }
+            else LidProcs[j].hasVG = TRUE;
+        }
     }
-    else LidProcs[j].hasStruct = FALSE;
+    else
+    {
+        LidProcs[j].hasStruct = FALSE;
+        if ( LidProcs[j].vgSet[0] || LidProcs[j].vgSet[1] )
+        {
+            //... VG lines need a SOIL2 layer
+            sstrncpy(Msg, LidProcs[j].ID, MAXMSG);
+            sstrcat(Msg, ERR_SOIL_LAYER, MAXMSG);
+            report_writeErrorMsg(ERR_LID_PARAMS, Msg);
+        }
+    }
 
     //... check storage layer parameters
     if ( LidProcs[j].storage.thickness > 0.0 )
