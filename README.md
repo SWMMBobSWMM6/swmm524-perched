@@ -161,7 +161,7 @@ cd perched_tests
 python3 verify.py --skip-openswmm     # exits 1 on any missing engine, count mismatch or moved number
 ```
 
-`verify.py` reruns every stored number against a fresh run and checks each group's case count against `tests_manifest.json` (season 46, ablation 18, VG checks 4, eight-inch storm 7, parity 930). The full study, with the OpenSWMM comparison, is in the Topsoil Recovery Check download.
+`verify.py` reruns the season, ablation, VG column, eight-inch storm and parity results against fresh runs and checks each group's case count against `tests_manifest.json` (season 46, ablation 18, VG checks 4, eight-inch storm 7, parity 930). The full study, with the OpenSWMM comparison, is in the Topsoil Recovery Check download.
 
 ## WebAssembly build
 

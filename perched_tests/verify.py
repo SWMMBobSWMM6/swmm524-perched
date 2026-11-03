@@ -1,5 +1,8 @@
 """
-verify.py -- rerun the study and check every stored number against a fresh run.
+verify.py -- rerun the season, VG, eight-inch-storm, parity and four-engine results
+and check each stored number against a fresh run.  (The single-event recovery test,
+saturation hours, binned Rv and the Green-Ampt bound are rerun by their own scripts
+and are not checked here.)
 
     python3 verify.py                    # everything; OpenSWMM group needs OPENSWMM_BIN
     python3 verify.py --skip-openswmm    # leave the OpenSWMM group out on purpose
