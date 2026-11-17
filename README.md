@@ -4,6 +4,10 @@ EPA SWMM 5.2.4 with a **perched two-layer soil** option for bio-retention LIDs. 
 
 The change is 310 added lines and 2 changed lines in `lid.c`, `lid.h` and `lidproc.c` (see `PERCHED_CHANGES.patch`). With no `SOIL2` line in the input file, the engine writes **the same `.out` bytes as EPA 5.2.4**: 598 of 598 test inputs, including every stock LID case.
 
+**Windows:** `windows/` holds ready-to-run Windows x64 builds of this engine and of unchanged EPA SWMM 5.2.4, plus `compare.py`, which runs a model through both and puts the answers side by side. See [windows/README.md](windows/README.md).
+
+**Links:** this repository, https://github.com/SWMMBobSWMM6/swmm524-perched (branch `van-genuchten`); Robert Dickinson on GitHub, https://github.com/dickinsonre and https://github.com/SWMMBobSWMM6; EPA SWMM 5.2.4, https://github.com/USEPA/Stormwater-Management-Model/tree/v5.2.4.
+
 ## Why
 
 In stock 5.2.4, a bio-retention cell's soil layer percolates into the storage layer at the soil's own unsaturated conductivity. The only cap is the storage layer's unused volume (`lidproc.c`, `biocellFluxRates`):
@@ -142,6 +146,8 @@ The single-event recovery test (`perched_tests/run_recovery.py`) starts the subs
 - **The `STRUCT` rates are illustrative, not calibrated.** Only Ksat degrades; macropore volume (porosity) does not. That understates the storage lost when structure collapses.
 - The Green-Ampt object for SOIL2 keeps its own recovery clock between events, as SWMM's surface Green-Ampt does. Its deficit is clamped to SOIL2's actual free pore space but not otherwise tied to θ2.
 - Only `BC` cells. There is no hot-start state for SOIL2 or the structure factor.
+- **`DRAIN` lines.** With a `SOIL2` line the perched routine sets `StorageDrain = 0.0`, so a drain has no effect. Without one the engine runs 5.2.4's bio-retention routine, including its defect D2: a drain on a cell with no storage layer makes water (winter season, coefficient 0.1: 232.848 in of drain flow from 20.550 in of rain, continuity -1,100.919 %, the same as EPA 5.2.4). `windows/examples/drain_no_storage_layer.inp` shows it.
+- **Do not give a `SOIL2` input to stock EPA 5.2.4.** Its keyword match accepts any word that starts with a known keyword, so `SOIL2` is read as a second `SOIL` line and the clay replaces the topsoil, with no error or warning (`lid.c` line 397, `findmatch(toks[1], LidLayerWords)`, through `match()` in `input.c`). On the winter example, surface runoff becomes 13.521 in instead of 3.400 in. A `VG` line is ERROR 205. `windows/compare.py` removes these lines before running 5.2.4.
 
 ## Build and run
 
@@ -163,6 +169,10 @@ python3 verify.py --skip-openswmm     # exits 1 on any missing engine, count mis
 
 `verify.py` reruns the season, ablation, VG column, eight-inch storm and parity results against fresh runs and checks each group's case count against `tests_manifest.json` (season 46, ablation 18, VG checks 4, eight-inch storm 7, parity 930). The full study, with the OpenSWMM comparison, is in the Topsoil Recovery Check download.
 
+## Windows build
+
+`windows/runswmm-524.exe` (EPA 5.2.4, tag v5.2.4, commit 7952ca83, unchanged) and `windows/runswmm-perched.exe` (this branch at 548e5fb) were built with Zig 0.17.0 (`python -m ziglang cc -target x86_64-windows-gnu -O2 -fno-fast-math -ffp-contract=off`, all of `src/solver/*.c` plus `src/run/main.c` into one executable). Under Wine 9.0 they wrote `.out` files byte-identical to Linux builds made the same way on all 8 example runs, and those Linux builds passed 1,059 of 1,059 `verify.py` cases. Not yet run on a Windows machine. Hashes in `windows/SHA256SUMS`.
+
 ## WebAssembly build
 
 `wasm/build_wasm.sh` compiles the engine to a wasm32-wasi module with Zig's C toolchain (`pip install ziglang`), using `-O2`, no fast-math and no FP contraction. `wasm/wasi_shim.c` supplies `mkstemp`, which wasi-libc lacks; no engine source changes. `wasm/runwasi.mjs` runs it under Node with the same `inp rpt out` arguments as `runswmm`. The browser runner in the Topsoil Recovery Check page drives it through a 16-call in-memory WASI layer.
@@ -173,4 +183,4 @@ Parity, measured: against the native build, 53 of 59 `.out` files byte-identical
 
 The base engine is EPA SWMM 5.2.4 (Lewis Rossman, US EPA), which is public domain; see `README-EPA.md`. The perched option was written for the SWMM Enablement work of Robert Dickinson. Its reference points are soil physics from Nimmo (2004) on textural and structural porosity and Leij, Ghezzehei and Or (2002) on pore-size dynamics after tillage.
 
-**AI use.** Claude (Anthropic) wrote the code changes, the test harness and this README at Bob Dickinson's direction. It also built and ran the engine and the controls. Bob set the requirements and reviews the results.
+**AI use.** Claude (Anthropic) wrote the code changes, the test harness, the Windows builds, `windows/compare.py` and this README at Bob Dickinson's direction. It also built and ran the engine and the controls. Bob set the requirements and reviews the results.

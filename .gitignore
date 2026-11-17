@@ -15,3 +15,6 @@ upload/
 perched_tests/verify_runs/
 perched_tests/verify_report.json
 __pycache__/
+
+# compare.py output
+compare_out/
